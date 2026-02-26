@@ -6,6 +6,20 @@ Base URL (local): `http://localhost:8000/api/v1`
 
 - `GET /health`
 
+## Chat Agent
+
+- `POST /chat/message`
+  - Session-based conversational endpoint for AI intake flow.
+  - Body:
+    ```json
+    {
+      "session_id": null,
+      "message": "my client code is READYONE01",
+      "reset": false
+    }
+    ```
+  - Returns assistant reply, current phase, suggestions, and profile/session context.
+
 ## Client/Auth
 
 - `POST /auth/client-code`
@@ -16,6 +30,9 @@ Base URL (local): `http://localhost:8000/api/v1`
     }
     ```
   - Returns client JWT token + profile.
+  - Also accepts free-form input in `client_code`, for example:
+    - `"my client id is READYONE01"`
+    - `"client code: READYONE01"`
 
 - `GET /client/profile`
   - Header: `Authorization: Bearer <token>`
@@ -30,6 +47,22 @@ Base URL (local): `http://localhost:8000/api/v1`
   - Header: `Authorization: Bearer <token>`
   - Body: `IntakeSubmission` payload
   - Returns contractor-ready summary text.
+
+- `POST /intake/normalize-answer`
+  - Header: `Authorization: Bearer <token>`
+  - Body:
+    ```json
+    {
+      "question_id": "due_date",
+      "question_type": "date",
+      "answer_text": "due next friday",
+      "required": true,
+      "options": [],
+      "question_label": "Due Date"
+    }
+    ```
+  - Returns normalized value + validation status for free-form chat answers.
+  - Used internally by the chat agent flow.
 
 - `POST /intake/submit`
   - Header: `Authorization: Bearer <token>`
@@ -46,6 +79,17 @@ All admin routes require header `x-admin-key`.
 - `GET /admin/service-options`
 - `PUT /admin/service-options`
 - `GET /admin/request-logs?limit=50`
+- `POST /admin/monday/verify`
+  - Body:
+    ```json
+    {
+      "api_token": "your-monday-token",
+      "board_id": "1234567890",
+      "query": null,
+      "force_live": true
+    }
+    ```
+  - Verifies Monday token/board access and returns account + board lookup results.
 
 ## IntakeSubmission Schema
 

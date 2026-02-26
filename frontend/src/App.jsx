@@ -1,11 +1,14 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 
 import IntakePage from "./pages/IntakePage";
 import AdminPage from "./pages/AdminPage";
 
 export default function App() {
+  const location = useLocation();
+  const isIntakeRoute = location.pathname === "/";
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isIntakeRoute ? "intake-shell" : ""}`}>
       <header className="app-header">
         <div className="brand">
           <p className="eyebrow">Bianomics</p>
@@ -29,7 +32,7 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="page-wrap">
+      <main className={`page-wrap ${isIntakeRoute ? "intake-wrap" : ""}`}>
         <Routes>
           <Route path="/" element={<IntakePage />} />
           <Route path="/admin" element={<AdminPage />} />

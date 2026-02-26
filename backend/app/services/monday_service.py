@@ -6,7 +6,7 @@ from uuid import uuid4
 import httpx
 
 from app.core.config import get_settings
-from app.models.schemas import MondaySubmissionResult
+from app.models.schemas import MondayCredentialCheckResponse, MondaySubmissionResult
 
 
 class MondayService:
@@ -27,6 +27,137 @@ class MondayService:
                 "summary": "long_summary",
                 "links": "long_links",
             }
+
+    def _headers(self, token: str) -> dict[str, str]:
+        return {
+            "Authorization": token,
+            "Content-Type": "application/json",
+        }
+
+    def verify_credentials(
+        self,
+        *,
+        api_token: str | None = None,
+        board_id: str | None = None,
+        query: str | None = None,
+        force_live: bool = False,
+    ) -> MondayCredentialCheckResponse:
+        token = (api_token or self.settings.monday_api_token or "").strip()
+        selected_board_id = (board_id or self.settings.monday_board_id or "").strip() or None
+
+        if not force_live and not api_token and self.settings.monday_mock_mode:
+            return MondayCredentialCheckResponse(
+                ok=False,
+                mock_mode=True,
+                api_url=self.settings.monday_api_url,
+                board_id=selected_board_id,
+                board_found=None,
+                error="MONDAY_MOCK_MODE is enabled. Disable it or set force_live=true to test the real API.",
+            )
+
+        if not token:
+            return MondayCredentialCheckResponse(
+                ok=False,
+                mock_mode=False,
+                api_url=self.settings.monday_api_url,
+                board_id=selected_board_id,
+                board_found=None,
+                error="Monday API token is missing.",
+            )
+
+        if query:
+            graphql_query = query
+            variables: dict[str, object] = {}
+        elif selected_board_id:
+            graphql_query = """
+            query VerifyMonday($boardIds: [ID!]) {
+              me {
+                id
+                name
+              }
+              boards(ids: $boardIds) {
+                id
+                name
+              }
+            }
+            """
+            variables = {"boardIds": [selected_board_id]}
+        else:
+            graphql_query = """
+            query VerifyMonday {
+              me {
+                id
+                name
+              }
+            }
+            """
+            variables = {}
+
+        try:
+            response = httpx.post(
+                self.settings.monday_api_url,
+                headers=self._headers(token),
+                json={"query": graphql_query, "variables": variables},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+            if payload.get("errors"):
+                first_error = payload["errors"][0].get("message", "Unknown Monday API error")
+                return MondayCredentialCheckResponse(
+                    ok=False,
+                    mock_mode=False,
+                    api_url=self.settings.monday_api_url,
+                    board_id=selected_board_id,
+                    board_found=False if selected_board_id else None,
+                    error=first_error,
+                )
+
+            data = payload.get("data", {})
+            me = data.get("me") or {}
+            boards = data.get("boards") or []
+
+            board_name = None
+            board_found: bool | None = None
+            if selected_board_id:
+                board_found = False
+                for board in boards:
+                    if str(board.get("id")) == str(selected_board_id):
+                        board_name = board.get("name")
+                        board_found = True
+                        break
+
+            return MondayCredentialCheckResponse(
+                ok=True,
+                mock_mode=False,
+                api_url=self.settings.monday_api_url,
+                account_id=str(me.get("id")) if me.get("id") is not None else None,
+                account_name=me.get("name"),
+                board_id=selected_board_id,
+                board_name=board_name,
+                board_found=board_found,
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response else "unknown"
+            detail = exc.response.text if exc.response else str(exc)
+            return MondayCredentialCheckResponse(
+                ok=False,
+                mock_mode=False,
+                api_url=self.settings.monday_api_url,
+                board_id=selected_board_id,
+                board_found=False if selected_board_id else None,
+                error=f"HTTP {status_code}: {detail}",
+            )
+        except Exception as exc:
+            return MondayCredentialCheckResponse(
+                ok=False,
+                mock_mode=False,
+                api_url=self.settings.monday_api_url,
+                board_id=selected_board_id,
+                board_found=False if selected_board_id else None,
+                error=str(exc),
+            )
 
     def create_item(
         self,
@@ -63,10 +194,7 @@ class MondayService:
         }
         """
 
-        headers = {
-            "Authorization": self.settings.monday_api_token,
-            "Content-Type": "application/json",
-        }
+        headers = self._headers(self.settings.monday_api_token)
         variables = {
             "boardId": self.settings.monday_board_id,
             "itemName": payload.get("project_title", "Untitled Project"),
