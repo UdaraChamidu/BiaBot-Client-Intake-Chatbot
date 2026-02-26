@@ -7,16 +7,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from app.core.rate_limit import rate_limiter
 from app.core.security import create_client_token, get_client_context, require_admin
 from app.models.schemas import (
+    ChatMessageRequest,
+    ChatMessageResponse,
     ClientCodeRequest,
     ClientCodeResponse,
     ClientProfile,
+    IntakeAnswerNormalizationRequest,
+    IntakeAnswerNormalizationResponse,
     IntakeOptionsResponse,
     IntakePreviewResponse,
     IntakeSubmitResponse,
     IntakeSubmission,
+    MondayCredentialCheckRequest,
+    MondayCredentialCheckResponse,
     RequestLogRecord,
     ServiceOptionsUpdate,
 )
+from app.services.chat_agent_service import ChatAgentService
+from app.services.chat_parser import extract_client_code_candidates, normalize_answer
 from app.services.flow_definitions import BRANCH_QUESTIONS, CORE_QUESTIONS
 from app.services.intake_service import generate_summary
 from app.services.monday_service import MondayService
@@ -27,6 +35,11 @@ router = APIRouter()
 store = get_store()
 openai_service = OpenAIService()
 monday_service = MondayService()
+chat_agent_service = ChatAgentService(
+    store=store,
+    openai_service=openai_service,
+    monday_service=monday_service,
+)
 
 
 @router.get("/health", tags=["health"])
@@ -34,12 +47,35 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/chat/message", response_model=ChatMessageResponse, tags=["chat"])
+def chat_message(payload: ChatMessageRequest) -> ChatMessageResponse:
+    return chat_agent_service.process_message(
+        message=payload.message,
+        session_id=payload.session_id,
+        reset=payload.reset,
+    )
+
+
 @router.post("/auth/client-code", response_model=ClientCodeResponse, tags=["auth"])
 def authenticate_client(payload: ClientCodeRequest, request: Request) -> ClientCodeResponse:
     remote = request.client.host if request.client else "unknown"
     rate_limiter.check(key=f"auth:{remote}", limit=15, window_seconds=60)
 
-    profile = store.get_client_profile(payload.client_code.strip())
+    raw_client_input = payload.client_code.strip()
+    candidates = [raw_client_input]
+    candidates.extend(extract_client_code_candidates(raw_client_input))
+
+    profile = None
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized_candidate = candidate.strip().upper()
+        if not normalized_candidate or normalized_candidate in seen:
+            continue
+        seen.add(normalized_candidate)
+        profile = store.get_client_profile(normalized_candidate)
+        if profile:
+            break
+
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid client code")
 
@@ -70,6 +106,26 @@ def get_intake_options(client_ctx: dict[str, str] = Depends(get_client_context))
         core_questions=CORE_QUESTIONS,
         branch_questions=BRANCH_QUESTIONS,
     )
+
+
+@router.post("/intake/normalize-answer", response_model=IntakeAnswerNormalizationResponse, tags=["intake"])
+def normalize_intake_answer(
+    payload: IntakeAnswerNormalizationRequest,
+    client_ctx: dict[str, str] = Depends(get_client_context),
+) -> IntakeAnswerNormalizationResponse:
+    profile = store.get_client_profile(client_ctx["client_code"])
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client profile not found")
+
+    normalized = normalize_answer(
+        answer_text=payload.answer_text,
+        question_id=payload.question_id,
+        question_type=payload.question_type,
+        required=payload.required,
+        options=payload.options,
+        question_label=payload.question_label,
+    )
+    return IntakeAnswerNormalizationResponse.model_validate(normalized)
 
 
 @router.post("/intake/preview", response_model=IntakePreviewResponse, tags=["intake"])
@@ -172,3 +228,17 @@ def admin_get_request_logs(
     for row in rows:
         normalized.append(row)
     return [RequestLogRecord.model_validate(row) for row in normalized]
+
+
+@router.post("/admin/monday/verify", response_model=MondayCredentialCheckResponse, tags=["admin"])
+def admin_verify_monday_credentials(
+    payload: MondayCredentialCheckRequest,
+    _: None = Depends(require_admin),
+) -> MondayCredentialCheckResponse:
+    result = monday_service.verify_credentials(
+        api_token=payload.api_token,
+        board_id=payload.board_id,
+        query=payload.query,
+        force_live=payload.force_live,
+    )
+    return result

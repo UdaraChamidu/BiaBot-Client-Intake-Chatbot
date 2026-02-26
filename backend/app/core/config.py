@@ -52,6 +52,9 @@ class Settings(BaseSettings):
         "Ask and organize project request information only. "
         "Do not generate final deliverables or legal or financial advice."
     )
+    chat_use_llm_response_generation: bool = True
+    chat_use_llm_rewrite: bool = False
+    chat_use_llm_question_generation: bool = True
 
     @property
     def cors_origins_list(self) -> list[str]:
