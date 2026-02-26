@@ -36,8 +36,17 @@ class Settings(BaseSettings):
         '"summary":"long_summary","links":"long_links"}'
     )
 
+    ai_provider: str = "openai"
+    ai_model: str | None = None
+    ai_api_key: str | None = None
+    ai_base_url: str | None = None
+
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-mini"
+    openai_base_url: str | None = None
+
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-3-5-sonnet-latest"
     intake_system_prompt: str = (
         "You are an intake assistant. Stay in intake mode only. "
         "Ask and organize project request information only. "

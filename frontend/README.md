@@ -22,10 +22,10 @@ npm run dev
 
 ## Features implemented
 
-- Client code authentication screen
-- One-question-at-a-time guided intake UI
-- Branching questions by service type
-- Confirmation summary preview
+- Fully conversational chatbot UI (bot greets first and asks for client code)
+- Free-text auth step (supports messages like "my client code is READYONE01")
+- One-question-at-a-time guided chat flow with branching by service type
+- Chat-based mission summary preview and submit confirmation
 - Submit request to backend/Monday mock
 - Basic admin page for:
   - service options

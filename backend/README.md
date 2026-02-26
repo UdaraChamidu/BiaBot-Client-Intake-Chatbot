@@ -31,4 +31,8 @@ uvicorn app.main:app --reload --port 8000
 - `USE_IN_MEMORY_STORE=true` lets you run immediately with a seeded client (`READYONE01`).
 - Set `USE_IN_MEMORY_STORE=false` and provide Supabase credentials to use real Supabase tables.
 - `MONDAY_MOCK_MODE=true` returns mock item IDs for local development.
-- Set `OPENAI_API_KEY` to enable AI-polished summaries.
+- AI summary provider is configurable:
+  - `AI_PROVIDER=openai` -> use OpenAI (`OPENAI_API_KEY` or `AI_API_KEY`)
+  - `AI_PROVIDER=anthropic` -> use Claude (`ANTHROPIC_API_KEY` or `AI_API_KEY`)
+  - `AI_PROVIDER=openai_compatible` -> use OpenAI-compatible providers (`AI_BASE_URL` + `AI_API_KEY`)
+  - `AI_PROVIDER=none` -> disable AI and always use deterministic fallback summaries
