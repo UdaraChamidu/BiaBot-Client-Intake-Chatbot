@@ -46,4 +46,7 @@ npm run dev
 1. Apply `backend/sql/supabase_schema.sql` in Supabase.
 2. Switch `USE_IN_MEMORY_STORE=false`.
 3. Replace Monday mock config with real board and columns.
-4. Set `OPENAI_API_KEY`.
+4. Configure AI provider:
+   - Claude: `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...`, optional `AI_MODEL`
+   - OpenAI: `AI_PROVIDER=openai`, `OPENAI_API_KEY=...`, optional `AI_MODEL`
+   - Free OpenAI-compatible model: `AI_PROVIDER=openai_compatible`, `AI_BASE_URL=...`, `AI_API_KEY=...`, `AI_MODEL=...`
