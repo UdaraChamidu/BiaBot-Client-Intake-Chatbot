@@ -9,7 +9,8 @@ export default function App() {
       <header className="app-header">
         <div className="brand">
           <p className="eyebrow">Bianomics</p>
-          <h1>BiaBot Intake Console</h1>
+          <h1>Chat with BiaBot</h1>
+          {/* <h1>BiaBot Intake Console</h1> */}
         </div>
         <nav className="nav-tabs">
           <NavLink

@@ -10,7 +10,8 @@
 ## Supabase Setup
 
 1. In Supabase SQL editor, run `sql/supabase_schema.sql`.
-2. Set:
+2. For local testing, run `sql/dev_seed_client_profile.sql`.
+3. Set:
    - `USE_IN_MEMORY_STORE=false`
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_KEY`

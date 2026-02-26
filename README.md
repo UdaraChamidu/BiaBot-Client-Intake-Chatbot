@@ -6,7 +6,7 @@ Implementation aligned to `BiaBot_Subscription.docx`:
 - Supabase-ready persistence (with in-memory fallback for local)
 - OpenAI summary polishing (optional)
 - Monday integration (mock mode by default)
-- React chatbot UI (one-question-at-a-time with branching)
+- React conversational chatbot UI (chat-based auth + one-question flow with branching)
 - Basic admin panel
 
 ## Project structure
@@ -44,9 +44,10 @@ npm run dev
 ## Next configuration step after local run
 
 1. Apply `backend/sql/supabase_schema.sql` in Supabase.
-2. Switch `USE_IN_MEMORY_STORE=false`.
-3. Replace Monday mock config with real board and columns.
-4. Configure AI provider:
+2. Apply `backend/sql/dev_seed_client_profile.sql` for a test client code (`READYONE01`).
+3. Switch `USE_IN_MEMORY_STORE=false`.
+4. Replace Monday mock config with real board and columns.
+5. Configure AI provider:
    - Claude: `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...`, optional `AI_MODEL`
    - OpenAI: `AI_PROVIDER=openai`, `OPENAI_API_KEY=...`, optional `AI_MODEL`
    - Free OpenAI-compatible model: `AI_PROVIDER=openai_compatible`, `AI_BASE_URL=...`, `AI_API_KEY=...`, `AI_MODEL=...`
