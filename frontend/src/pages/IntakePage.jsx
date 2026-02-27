@@ -15,10 +15,10 @@ function makeMessage(role, text) {
 
 function composerPlaceholder(phase) {
   if (phase === "await_client_code") {
-    return "Tell me your client code. Example: READYONE01";
+    return "Share your client code to continue";
   }
   if (phase === "await_confirmation") {
-    return "Type Submit or Restart";
+    return "Confirm submission or request a restart";
   }
   return "Type your message";
 }

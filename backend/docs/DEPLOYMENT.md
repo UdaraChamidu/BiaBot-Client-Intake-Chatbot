@@ -24,26 +24,17 @@
    - `MONDAY_BOARD_ID`
    - `MONDAY_COLUMN_MAP_JSON` with real column IDs
 
-## AI Provider Setup
+## AI Setup (OpenAI Only)
 
-1. Claude (Anthropic):
-   - `AI_PROVIDER=anthropic`
-   - `ANTHROPIC_API_KEY`
-   - optional `AI_MODEL` (or use `ANTHROPIC_MODEL`)
+1. Set:
+   - `OPENAI_API_KEY`
+   - optional `OPENAI_MODEL` (default `gpt-4.1-nano`)
+   - optional `OPENAI_BASE_URL` if you proxy OpenAI calls
 
-2. OpenAI:
-   - `AI_PROVIDER=openai`
-   - `OPENAI_API_KEY` (or `AI_API_KEY`)
-   - optional `AI_MODEL` (or use `OPENAI_MODEL`)
-
-3. OpenAI-compatible providers (many free models):
-   - `AI_PROVIDER=openai_compatible`
-   - `AI_BASE_URL`
-   - `AI_API_KEY`
-   - `AI_MODEL`
-
-4. Disable AI and use deterministic summaries:
-   - `AI_PROVIDER=none`
+2. Keep:
+   - `CHAT_REQUIRE_LLM=true`
+   - `CHAT_USE_LLM_RESPONSE_GENERATION=true`
+   - `CHAT_USE_LLM_QUESTION_GENERATION=true`
 
 ## Production Targets (later phase)
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from app.core.config import get_settings
 from app.models.schemas import ChatMessageResponse, IntakeQuestion, IntakeSubmission
 from app.services.chat_parser import extract_client_code_candidates, match_option, normalize_answer
 from app.services.flow_definitions import BRANCH_QUESTIONS, CORE_QUESTIONS
@@ -46,6 +47,7 @@ REJECT_PATTERN = re.compile(r"^(no|n|not that|wrong|change it)$", re.IGNORECASE)
 RULE_ACCEPT_CONFIDENCE = 0.86
 LLM_ACCEPT_CONFIDENCE = 0.78
 CLARIFY_CONFIDENCE = 0.55
+ACTION_ACCEPT_CONFIDENCE = 0.68
 
 CORE_FIELDS = {
     "project_title",
@@ -91,6 +93,7 @@ class ChatAgentService:
         openai_service: OpenAIService,
         monday_service: MondayService,
     ) -> None:
+        self.settings = get_settings()
         self.store = store
         self.openai_service = openai_service
         self.monday_service = monday_service
@@ -108,14 +111,17 @@ class ChatAgentService:
         session.turn_count += 1
         session.last_user_message = cleaned
 
+        if self.settings.chat_require_llm and not self.openai_service.available:
+            return self._response(
+                session,
+                "LLM is required but OpenAI is not configured. Set OPENAI_API_KEY and restart the backend.",
+            )
+
         if reset:
             return self._response(
                 session,
                 self._assistant_text(
-                    fallback=(
-                        "New chat started. Please share your client code to begin, "
-                        "for example READYONE01."
-                    ),
+                    fallback="New chat started. Please share your client code to begin.",
                     phase=session.phase,
                     context={"event": "reset_chat", "retry_count": 0},
                 ),
@@ -183,8 +189,6 @@ class ChatAgentService:
 
     def _handle_client_code(self, session: ChatSession, message: str) -> ChatMessageResponse:
         extracted_candidates = extract_client_code_candidates(message)
-        candidates = [message]
-        candidates.extend(extracted_candidates)
 
         preauth_response = self._try_handle_pre_auth_dialog(
             session=session,
@@ -193,6 +197,9 @@ class ChatAgentService:
         )
         if preauth_response is not None:
             return preauth_response
+
+        candidates = [message]
+        candidates.extend(extracted_candidates)
 
         seen: set[str] = set()
         for candidate in candidates:
@@ -261,7 +268,12 @@ class ChatAgentService:
         options = self._service_options(profile)
         if session.pending_field_id == "service_type":
             confirmation_text = message.strip()
-            if CONFIRM_PATTERN.search(confirmation_text) and isinstance(session.pending_value, str):
+            action = self._control_action(
+                phase="service_confirmation",
+                message=confirmation_text,
+                allowed_actions=["confirm", "reject"],
+            )
+            if action == "confirm" and isinstance(session.pending_value, str):
                 selected_service = session.pending_value
                 self._clear_pending_clarification(session)
                 return self._activate_service_type(
@@ -270,7 +282,7 @@ class ChatAgentService:
                     selected=selected_service,
                     options=options,
                 )
-            if REJECT_PATTERN.search(confirmation_text):
+            if action == "reject":
                 self._clear_pending_clarification(session)
                 return self._response(
                     session,
@@ -526,10 +538,6 @@ class ChatAgentService:
         field_label: str,
         context: dict[str, Any] | None = None,
     ) -> tuple[str | None, float, str | None]:
-        selected, score = match_option(message, options)
-        if selected and score >= RULE_ACCEPT_CONFIDENCE:
-            return selected, score, None
-
         llm_result = self.openai_service.extract_structured_answer(
             question_id=field_id,
             question_label=field_label,
@@ -539,6 +547,11 @@ class ChatAgentService:
             user_message=message,
             context=context,
         )
+        if llm_result and llm_result.get("off_topic"):
+            assistant_reply = llm_result.get("assistant_reply")
+            if isinstance(assistant_reply, str) and assistant_reply.strip():
+                return None, float(llm_result.get("confidence", 0.0)), assistant_reply.strip()
+
         if llm_result and llm_result.get("ok"):
             value = llm_result.get("value")
             confidence = float(llm_result.get("confidence", 0.0))
@@ -556,6 +569,9 @@ class ChatAgentService:
                 if clarification:
                     return None, confidence, str(clarification)
 
+        selected, score = match_option(message, options)
+        if selected and score >= RULE_ACCEPT_CONFIDENCE:
+            return selected, score, None
         if selected and score >= CLARIFY_CONFIDENCE:
             return selected, score, f'Did you mean "{selected}"?'
         return None, 0.0, None
@@ -567,33 +583,6 @@ class ChatAgentService:
         question: IntakeQuestion,
         message: str,
     ) -> dict[str, Any]:
-        rule_result = normalize_answer(
-            answer_text=message,
-            question_id=question.id,
-            question_type=question.question_type,
-            required=question.required,
-            options=question.options,
-            question_label=question.label,
-        )
-
-        if rule_result.get("ok"):
-            # For free-text/list fields, deterministic parsing is usually sufficient and faster.
-            if question.question_type not in {"choice", "date"}:
-                return {
-                    "status": "accept",
-                    "value": rule_result.get("normalized_value"),
-                    "confidence": float(rule_result.get("confidence", 0.0)),
-                    "source": "rule",
-                }
-
-        if rule_result.get("ok") and float(rule_result.get("confidence", 0.0)) >= RULE_ACCEPT_CONFIDENCE:
-            return {
-                "status": "accept",
-                "value": rule_result.get("normalized_value"),
-                "confidence": float(rule_result.get("confidence", 0.0)),
-                "source": "rule",
-            }
-
         llm_context = {
             "service_type": session.service_type,
             "known_answers": session.answers,
@@ -608,6 +597,21 @@ class ChatAgentService:
             user_message=message,
             context=llm_context,
         )
+
+        if llm_result and llm_result.get("off_topic"):
+            redirect_text = llm_result.get("assistant_reply")
+            if not isinstance(redirect_text, str) or not redirect_text.strip():
+                redirect_text = self.openai_service.generate_redirect_reply(
+                    user_message=message,
+                    question_label=question.label,
+                    question_options=question.options or [],
+                )
+            return {
+                "status": "reject",
+                "message": redirect_text
+                or f"Let us continue with {question.label}. Could you share that now?",
+                "options": self._question_suggestions(question),
+            }
 
         if llm_result and llm_result.get("ok"):
             candidate = self._normalize_candidate_value(question, llm_result.get("value"))
@@ -635,6 +639,23 @@ class ChatAgentService:
                         "clarification_question": clarification,
                         "source": "llm",
                     }
+
+        rule_result = normalize_answer(
+            answer_text=message,
+            question_id=question.id,
+            question_type=question.question_type,
+            required=question.required,
+            options=question.options,
+            question_label=question.label,
+        )
+
+        if rule_result.get("ok") and float(rule_result.get("confidence", 0.0)) >= RULE_ACCEPT_CONFIDENCE:
+            return {
+                "status": "accept",
+                "value": rule_result.get("normalized_value"),
+                "confidence": float(rule_result.get("confidence", 0.0)),
+                "source": "rule",
+            }
 
         if rule_result.get("ok"):
             confidence = float(rule_result.get("confidence", 0.0))
@@ -751,14 +772,19 @@ class ChatAgentService:
             return None
 
         cleaned = message.strip()
-        if CONFIRM_PATTERN.search(cleaned):
+        action = self._control_action(
+            phase="clarification",
+            message=cleaned,
+            allowed_actions=["confirm", "reject"],
+        )
+        if action == "confirm":
             value = session.pending_value
             self._clear_pending_clarification(session)
             session.answers[question.id] = value
             session.question_index += 1
             return self._advance_after_answer(session=session, profile=profile)
 
-        if REJECT_PATTERN.search(cleaned):
+        if action == "reject":
             self._clear_pending_clarification(session)
             prompt = self._question_prompt(session, question, session.service_type or "")
             return self._response(
@@ -785,8 +811,12 @@ class ChatAgentService:
                 ),
             )
 
-        lowered = message.strip().lower()
-        if RESTART_PATTERN.search(lowered):
+        action = self._control_action(
+            phase=session.phase,
+            message=message,
+            allowed_actions=["submit", "restart"],
+        )
+        if action == "restart":
             self._reset_intake_only(session)
             options = self._service_options(profile)
             return self._response(
@@ -799,11 +829,11 @@ class ChatAgentService:
                 profile=profile,
             )
 
-        if not SUBMIT_PATTERN.search(lowered):
+        if action != "submit":
             return self._response(
                 session,
                 self._assistant_text(
-                    fallback="Type Submit to send this request, or Restart to begin again.",
+                    fallback="Please tell me if you want to Submit now or Restart this request.",
                     phase=session.phase,
                 ),
                 suggestions=["Submit", "Restart"],
@@ -870,7 +900,12 @@ class ChatAgentService:
 
     def _handle_done(self, session: ChatSession, message: str) -> ChatMessageResponse:
         profile = session.client_profile
-        if RESTART_PATTERN.search(message) or "start new request" in message.lower():
+        action = self._control_action(
+            phase=session.phase,
+            message=message,
+            allowed_actions=["restart"],
+        )
+        if action == "restart":
             self._reset_intake_only(session)
             options = self._service_options(profile) if profile else []
             return self._response(
@@ -946,41 +981,18 @@ class ChatAgentService:
 
     def _fallback_question_prompt(self, question: IntakeQuestion, service_type: str) -> str:
         label = question.label.strip()
-        id_based_prompts = {
-            "project_title": f"What should we call this {service_type.lower()} request?",
-            "goal": "What outcome are you aiming for?",
-            "target_audience": "Who is the target audience?",
-            "primary_cta": "What is the primary call to action?",
-            "due_date": "When do you want this delivered?",
-            "approver": "Who should approve this request?",
-            "required_elements": "Are there required elements to include (logos, disclaimers, QR code, etc.)?",
-            "references": "Any references or links I should use? This is optional.",
-            "uploaded_files": "Do you want to attach any files or links? This is optional.",
-        }
-
-        if question.id in id_based_prompts:
-            return id_based_prompts[question.id]
-
         if question.question_type == "choice" and question.options:
-            return f"{label} Please choose one: {', '.join(question.options)}."
+            return f"For {label}, please choose one: {', '.join(question.options)}."
 
         if question.required:
-            return f"Could you share: {label}?"
-        return f"Could you share: {label}? This is optional."
+            return f"Please share {label}."
+        return f"Please share {label}. This is optional."
 
     def _welcome_fallback(self, session: ChatSession) -> str:
+        greeting = self._time_of_day_greeting()
         if session.user_name:
-            return (
-                f"{self._time_of_day_greeting()}, {session.user_name}. "
-                "Please share your client code so I can start your intake."
-            )
-        variants = [
-            "Hi, I am biaBot. Please share your client code so I can start your intake.",
-            "Welcome. I can help capture your request end-to-end. What is your client code?",
-            "Hello, I am biaBot. Send your client code and I will walk you through the request.",
-        ]
-        index = (session.turn_count - 1) % len(variants)
-        return variants[index]
+            return f"{greeting}, {session.user_name}. Please share your client code to start."
+        return f"{greeting}. I am biaBot and I can capture your intake request. Please share your client code."
 
     def _try_handle_pre_auth_dialog(
         self,
@@ -989,6 +1001,40 @@ class ChatAgentService:
         message: str,
         extracted_candidates: list[str],
     ) -> ChatMessageResponse | None:
+        llm_preauth = self.openai_service.interpret_preauth_message(
+            message=message,
+            known_user_name=session.user_name,
+        )
+        if llm_preauth:
+            llm_name = llm_preauth.get("user_name")
+            if isinstance(llm_name, str) and llm_name:
+                session.user_name = llm_name
+
+            llm_code = llm_preauth.get("client_code")
+            if isinstance(llm_code, str) and llm_code:
+                if llm_code not in extracted_candidates:
+                    extracted_candidates.append(llm_code)
+
+            llm_intent = str(llm_preauth.get("intent", "")).strip().lower()
+            if llm_intent == "submit_client_code" or llm_code:
+                return None
+
+            assistant_reply = llm_preauth.get("assistant_reply")
+            if isinstance(assistant_reply, str) and assistant_reply.strip():
+                return self._response(
+                    session,
+                    self._assistant_text(
+                        fallback=assistant_reply.strip(),
+                        phase=session.phase,
+                        context={
+                            "event": "pre_auth_dialog",
+                            "user_name": session.user_name,
+                            "retry_count": session.client_code_attempts,
+                            "user_message": message,
+                        },
+                    ),
+                )
+
         detected_name = self._extract_user_name(message)
         if detected_name:
             session.user_name = detected_name
@@ -1063,51 +1109,26 @@ class ChatAgentService:
     ) -> str:
         name = detected_name or session.user_name
         if detected_name:
-            return f"Hi {detected_name}. Please share your client code so I can log you in."
+            return f"Hi {detected_name}. Please share your client code to continue."
 
-        if IDENTITY_PATTERN.search(message):
-            if name:
-                return (
-                    f"Hi {name}. I am biaBot, your intake assistant. "
-                    "Please share your client code and I will guide you through the request."
-                )
+        if CLIENT_CODE_TERM_PATTERN.search(message) and (
+            "?" in message or CLIENT_CODE_HELP_HINT_PATTERN.search(message)
+        ):
             return (
-                "I am biaBot, your intake assistant. "
-                "Please share your client code so I can continue."
+                "A client code is a unique ID your company provides for intake access. "
+                "If you do not have it, check your onboarding email or ask your internal contact. "
+                "Share it here and I will continue."
             )
 
-        if GREETING_PATTERN.search(message):
+        if GREETING_PATTERN.search(message) or IDENTITY_PATTERN.search(message):
             greeting = self._time_of_day_greeting()
             if name:
-                return f"{greeting}, {name}. Please share your client code so we can continue."
-            return f"{greeting}. I am biaBot. Please share your client code to go forward."
-
-        if CLIENT_CODE_TERM_PATTERN.search(message):
-            if "?" in message or CLIENT_CODE_HELP_HINT_PATTERN.search(message):
-                if name:
-                    return (
-                        f"Great question, {name}. A client code is the unique ID your company shares "
-                        "to identify your account in this intake system. If you cannot find it, check "
-                        "your onboarding email or ask your internal contact. Once you have it, send it here "
-                        "and I will continue."
-                    )
-                return (
-                    "Great question. A client code is the unique ID your company shares to identify your "
-                    "account in this intake system. If you cannot find it, check your onboarding email or "
-                    "ask your internal contact. Once you have it, send it here and I will continue."
-                )
-
-        if "?" in message:
-            if name:
-                return (
-                    f"Good question, {name}. I can answer that after login. "
-                    "Please share your client code first."
-                )
-            return "Good question. Please share your client code first, then I can help with the rest."
+                return f"{greeting}, {name}. Please share your client code so I can start your intake."
+            return f"{greeting}. I am biaBot. Please share your client code so I can start your intake."
 
         if name:
-            return f"Thanks {name}. Please share your client code to continue."
-        return "Please share your client code when you are ready, and I will continue."
+            return f"Thanks {name}. Please share your client code when you are ready."
+        return "Please share your client code when you are ready."
 
     def _client_code_retry_fallback(
         self,
@@ -1115,7 +1136,6 @@ class ChatAgentService:
         message: str,
         candidates: list[str],
     ) -> str:
-        user_prefix = f"{session.user_name}, " if session.user_name else ""
         normalized_candidates = [item.strip() for item in candidates if item and item.strip()]
         preferred = None
         for candidate in normalized_candidates:
@@ -1126,33 +1146,40 @@ class ChatAgentService:
             preferred = candidate
             break
 
-        if session.client_code_attempts <= 1:
-            return (
-                f"{user_prefix}I could not verify that code yet. Please share the exact client code "
-                "you received (example: READYONE01)."
-            )
         if preferred:
-            return (
-                f"{user_prefix}I still could not verify \"{preferred}\". Please resend the exact code "
-                "without extra words if possible."
-            )
-        variants = [
-            f"{user_prefix}I am still unable to verify that client code. Please double-check it and try again.",
-            f"{user_prefix}I still cannot match that client code. Please send the exact code exactly as provided.",
-            f"{user_prefix}That code is not matching yet. Re-enter the exact client code and I will continue.",
-        ]
-        index = (session.client_code_attempts - 2) % len(variants)
-        return variants[index]
+            return f"I could not verify \"{preferred}\" yet. Please resend the exact client code."
+        return "I could not verify that client code yet. Please send the exact code your company provided."
 
     def _service_retry_fallback(self, session: ChatSession, options: list[str]) -> str:
-        if session.service_attempts <= 1:
-            return "I did not catch the service type. Please choose one of these options."
-        if session.service_attempts == 2 and options:
-            return (
-                "I still could not map that service. Please choose the closest match from the list, "
-                f"for example \"{options[0]}\"."
-            )
-        return "I am still not matching the service correctly. Pick one option below and I will continue."
+        if options:
+            return "I could not map that service yet. Please choose the closest option from the list."
+        return "I could not map that service yet. Please tell me your requested service again."
+
+    def _control_action(self, *, phase: str, message: str, allowed_actions: list[str]) -> str:
+        normalized_allowed = [action.strip().lower() for action in allowed_actions if action.strip()]
+        llm_result = self.openai_service.classify_control_action(
+            phase=phase,
+            user_message=message,
+            allowed_actions=normalized_allowed,
+        )
+        if llm_result:
+            action = str(llm_result.get("action", "other")).strip().lower()
+            confidence = float(llm_result.get("confidence", 0.0))
+            if action in normalized_allowed and confidence >= ACTION_ACCEPT_CONFIDENCE:
+                return action
+
+        lowered = message.strip().lower()
+        if "restart" in normalized_allowed and (
+            RESTART_PATTERN.search(lowered) or "start new request" in lowered
+        ):
+            return "restart"
+        if "submit" in normalized_allowed and SUBMIT_PATTERN.search(lowered):
+            return "submit"
+        if "confirm" in normalized_allowed and CONFIRM_PATTERN.search(lowered):
+            return "confirm"
+        if "reject" in normalized_allowed and REJECT_PATTERN.search(lowered):
+            return "reject"
+        return "other"
 
     def _question_suggestions(self, question: IntakeQuestion) -> list[str]:
         options = list(question.options or [])
