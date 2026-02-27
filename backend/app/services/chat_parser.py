@@ -120,6 +120,16 @@ def parse_date_input(input_text: str) -> str | None:
         return today.isoformat()
     if lowered in {"tomorrow", "tmr", "tmrw"}:
         return (today + timedelta(days=1)).isoformat()
+    if lowered in {"next week"}:
+        return (today + timedelta(days=7)).isoformat()
+
+    relative_days = re.fullmatch(r"(?:in\s+)?(\d+)\s+days?(?:\s+from\s+now)?", lowered)
+    if relative_days:
+        return (today + timedelta(days=int(relative_days.group(1)))).isoformat()
+
+    relative_weeks = re.fullmatch(r"(?:in\s+)?(\d+)\s+weeks?(?:\s+from\s+now)?", lowered)
+    if relative_weeks:
+        return (today + timedelta(days=7 * int(relative_weeks.group(1)))).isoformat()
 
     weekday_map = {
         "monday": 0,
@@ -133,6 +143,19 @@ def parse_date_input(input_text: str) -> str | None:
     next_weekday = re.fullmatch(r"next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)", lowered)
     if next_weekday:
         target = weekday_map[next_weekday.group(1)]
+        days_ahead = (target - today.weekday()) % 7
+        days_ahead = 7 if days_ahead == 0 else days_ahead
+        return (today + timedelta(days=days_ahead)).isoformat()
+
+    this_weekday = re.fullmatch(r"this\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)", lowered)
+    if this_weekday:
+        target = weekday_map[this_weekday.group(1)]
+        days_ahead = (target - today.weekday()) % 7
+        return (today + timedelta(days=days_ahead)).isoformat()
+
+    plain_weekday = re.fullmatch(r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)", lowered)
+    if plain_weekday:
+        target = weekday_map[plain_weekday.group(1)]
         days_ahead = (target - today.weekday()) % 7
         days_ahead = 7 if days_ahead == 0 else days_ahead
         return (today + timedelta(days=days_ahead)).isoformat()

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { NavLink } from "react-router-dom";
 
 import { sendChatMessage } from "../services/intakeService";
 
@@ -14,10 +15,10 @@ function makeMessage(role, text) {
 
 function composerPlaceholder(phase) {
   if (phase === "await_client_code") {
-    return "Tell me your client code. Example: READYONE01";
+    return "Share your client code to continue";
   }
   if (phase === "await_confirmation") {
-    return "Type Submit or Restart";
+    return "Confirm submission or request a restart";
   }
   return "Type your message";
 }
@@ -178,6 +179,25 @@ export default function IntakePage() {
         </button>
 
         <div className="sidebar-section">
+          <h3>Navigation</h3>
+          <nav className="sidebar-icons">
+            <NavLink
+              to="/"
+              className={({ isActive }) => (isActive ? "sidebar-link-btn active" : "sidebar-link-btn")}
+              end
+            >
+              Client Intake
+            </NavLink>
+            <NavLink
+              to="/admin"
+              className={({ isActive }) => (isActive ? "sidebar-link-btn active" : "sidebar-link-btn")}
+            >
+              Admin
+            </NavLink>
+          </nav>
+        </div>
+
+        <div className="sidebar-section">
           <h3>Profile</h3>
           <div className="sidebar-profile">
             <img src={BOT_AVATAR_URL} alt="profile" />
@@ -230,7 +250,7 @@ export default function IntakePage() {
               <span />
               <span />
             </button>
-            <div>
+            <div className="chat-top-titles">
               <p className="chatbot-tag">biaBot</p>
               <h2>AI Conversational Intake</h2>
             </div>

@@ -47,7 +47,7 @@ npm run dev
 2. Apply `backend/sql/dev_seed_client_profile.sql` for a test client code (`READYONE01`).
 3. Switch `USE_IN_MEMORY_STORE=false`.
 4. Replace Monday mock config with real board and columns.
-5. Configure AI provider:
-   - Claude: `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY=...`, optional `AI_MODEL`
-   - OpenAI: `AI_PROVIDER=openai`, `OPENAI_API_KEY=...`, optional `AI_MODEL`
-   - Free OpenAI-compatible model: `AI_PROVIDER=openai_compatible`, `AI_BASE_URL=...`, `AI_API_KEY=...`, `AI_MODEL=...`
+5. Configure OpenAI:
+   - `OPENAI_API_KEY=...`
+   - optional `OPENAI_MODEL` (default: `gpt-4.1-nano`)
+   - optional `OPENAI_BASE_URL` only if you proxy OpenAI API calls
