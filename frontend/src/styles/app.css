@@ -41,7 +41,7 @@ body {
 
 .app-shell.intake-shell {
   max-width: none;
-  padding: 14px 14px 22px;
+  padding: 0;
 }
 
 .app-header {
@@ -58,6 +58,7 @@ body {
   font-family: "Orbitron", "Space Grotesk", sans-serif;
   letter-spacing: 0.04em;
   font-size: clamp(1.5rem, 2.7vw, 2.2rem);
+  margin-left: 500px;
 }
 
 .eyebrow {
@@ -66,6 +67,7 @@ body {
   letter-spacing: 0.16em;
   font-size: 0.74rem;
   color: var(--muted);
+  margin-left: 500px;
 }
 
 .nav-tabs {
@@ -166,10 +168,10 @@ textarea::placeholder {
 .chatbot-page {
   position: relative;
   overflow: hidden;
-  padding: 16px;
-  display: block;
-  min-height: calc(100vh - 132px);
-  height: calc(100vh - 132px);
+  padding: 0;
+  display: flex;
+  min-height: 100vh;
+  height: 100vh;
   background: transparent;
 }
 
@@ -186,6 +188,7 @@ textarea::placeholder {
   opacity: 0;
   pointer-events: none;
   transition: opacity 180ms ease;
+  display: none; /* Hidden on desktop */
 }
 
 .sidebar-backdrop.show {
@@ -194,24 +197,23 @@ textarea::placeholder {
 }
 
 .chat-sidebar {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: min(320px, 86vw);
-  z-index: 20;
-  transform: translateX(-104%);
-  transition: transform 220ms ease;
+  position: static;
+  width: 320px;
+  flex-shrink: 0;
+  margin-left: -320px;
+  transition: margin-left 220ms ease;
   border-right: 1px solid var(--line);
-  background: transparent;
-  backdrop-filter: blur(2px);
+  background: var(--panel);
   padding: 16px 14px;
   display: grid;
   align-content: start;
   gap: 12px;
   overflow-y: auto;
+  z-index: 20;
 }
 
 .chat-sidebar.open {
-  transform: translateX(0);
+  margin-left: 0;
 }
 
 .sidebar-head {
@@ -322,6 +324,14 @@ textarea::placeholder {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
+  display: block;
+}
+
+.sidebar-link-btn.active {
+  background: rgba(22, 197, 216, 0.2);
+  border-color: rgba(22, 197, 216, 0.58);
+  color: #d9fcff;
 }
 
 .chat-main {
@@ -332,6 +342,9 @@ textarea::placeholder {
   gap: 10px;
   position: relative;
   z-index: 1;
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
 }
 
 .chat-topbar {
@@ -348,7 +361,14 @@ textarea::placeholder {
 .chat-topbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 20px; /* Increased gap to push it slightly to the right */
+}
+
+.chat-top-titles {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-left: 8px; /* Extra push to the right */
 }
 
 .hamburger-btn {
@@ -639,10 +659,30 @@ td {
     height: calc(100vh - 122px);
     min-height: calc(100vh - 122px);
     padding: 12px;
+    display: block; /* Revert to block on mobile */
+  }
+
+  .sidebar-backdrop {
+    display: block; /* Show backdrop on mobile */
   }
 
   .chat-sidebar {
+    position: absolute;
+    inset: 0 auto 0 0;
     width: min(300px, 90vw);
+    margin-left: 0;
+    transform: translateX(-104%);
+    transition: transform 220ms ease;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid var(--line);
+    background: rgba(16, 27, 48, 0.95);
+    backdrop-filter: blur(4px);
+  }
+
+  .chat-sidebar.open {
+    transform: translateX(0);
+    margin-left: 0;
   }
 
   .chat-composer {

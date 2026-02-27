@@ -34,6 +34,12 @@ NAME_PATTERN = re.compile(
     r"\b(?:my name is|i am|i'm|this is|its)\s+([A-Za-z][A-Za-z\-']{1,40})\b",
     re.IGNORECASE,
 )
+CLIENT_CODE_TERM_PATTERN = re.compile(r"\b(client\s*(?:id|code)|clientcode)\b", re.IGNORECASE)
+CLIENT_CODE_HELP_HINT_PATTERN = re.compile(
+    r"\b(what|where|how|why|when|meaning|mean|forgot|lost|find|get|use|need|"
+    r"don't|do not|dont|no|without|have|submit)\b",
+    re.IGNORECASE,
+)
 CONFIRM_PATTERN = re.compile(r"^(yes|y|correct|right|exactly|that works|looks good)$", re.IGNORECASE)
 REJECT_PATTERN = re.compile(r"^(no|n|not that|wrong|change it)$", re.IGNORECASE)
 
@@ -1011,7 +1017,17 @@ class ChatAgentService:
         stripped = message.strip()
         if not stripped:
             return False
-        if re.search(r"\b(client\s*(?:id|code)|id|code)\b", stripped, re.IGNORECASE):
+        lowered = stripped.lower()
+        asks_question = "?" in stripped or bool(
+            re.search(r"\b(what|where|how|why|when|which|meaning|mean|help)\b", lowered)
+        )
+        if CLIENT_CODE_TERM_PATTERN.search(stripped):
+            if asks_question or CLIENT_CODE_HELP_HINT_PATTERN.search(stripped):
+                return False
+            return True
+        if re.search(r"\b(id|code)\b", stripped, re.IGNORECASE):
+            if asks_question:
+                return False
             return True
         if re.fullmatch(r"[A-Za-z0-9_-]{4,64}", stripped):
             if re.search(r"\d", stripped):
@@ -1065,6 +1081,21 @@ class ChatAgentService:
             if name:
                 return f"{greeting}, {name}. Please share your client code so we can continue."
             return f"{greeting}. I am biaBot. Please share your client code to go forward."
+
+        if CLIENT_CODE_TERM_PATTERN.search(message):
+            if "?" in message or CLIENT_CODE_HELP_HINT_PATTERN.search(message):
+                if name:
+                    return (
+                        f"Great question, {name}. A client code is the unique ID your company shares "
+                        "to identify your account in this intake system. If you cannot find it, check "
+                        "your onboarding email or ask your internal contact. Once you have it, send it here "
+                        "and I will continue."
+                    )
+                return (
+                    "Great question. A client code is the unique ID your company shares to identify your "
+                    "account in this intake system. If you cannot find it, check your onboarding email or "
+                    "ask your internal contact. Once you have it, send it here and I will continue."
+                )
 
         if "?" in message:
             if name:
