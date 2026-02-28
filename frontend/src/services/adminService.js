@@ -19,6 +19,12 @@ export async function upsertClientProfile(adminPassword, profile) {
   return data;
 }
 
+export async function deleteClientProfile(adminPassword, clientCode) {
+  await apiClient.delete(`/admin/client-profiles/${encodeURIComponent(clientCode)}`, {
+    headers: adminHeaders(adminPassword),
+  });
+}
+
 export async function getServiceOptions(adminPassword) {
   const { data } = await apiClient.get("/admin/service-options", {
     headers: adminHeaders(adminPassword),

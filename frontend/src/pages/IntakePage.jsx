@@ -16,7 +16,7 @@ function makeMessage(role, text) {
 
 function composerPlaceholder(phase) {
   if (phase === "await_client_code") {
-    return "Share your client code to continue";
+    return "Let's get you into your workspace. Enter your client code below.";
   }
   if (phase === "await_confirmation") {
     return "Confirm submission or request a restart";
@@ -159,6 +159,10 @@ export default function IntakePage() {
     setCurrentTheme(next);
   }
 
+  function handleNotificationsToggle() {
+    setNotificationsEnabled((prev) => !prev);
+  }
+
   useEffect(() => {
     initializeChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -234,7 +238,7 @@ export default function IntakePage() {
             <button
               type="button"
               className="icon-toggle"
-              onClick={() => setNotificationsEnabled((prev) => !prev)}
+              onClick={handleNotificationsToggle}
             >
               <span className="icon-mark">{notificationsEnabled ? "ON" : "OFF"}</span>
               <span>Notifications</span>
@@ -277,12 +281,42 @@ export default function IntakePage() {
           <div className="chat-topbar-right">
             <button
               type="button"
-              className="theme-toggle-btn"
-              onClick={handleThemeToggle}
-              aria-label="Toggle theme"
-              title={currentTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className={`topbar-icon-btn ${notificationsEnabled ? "active" : ""}`}
+              onClick={handleNotificationsToggle}
+              aria-label={notificationsEnabled ? "Disable notifications" : "Enable notifications"}
+              aria-pressed={notificationsEnabled}
+              title={notificationsEnabled ? "Notifications on" : "Notifications off"}
             >
-              {currentTheme === "dark" ? "Light" : "Dark"}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+                <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
+                {!notificationsEnabled && <line x1="4" y1="4" x2="20" y2="20" />}
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="topbar-icon-btn"
+              onClick={handleThemeToggle}
+              aria-label={currentTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              title={currentTheme === "dark" ? "Light theme" : "Dark theme"}
+            >
+              {currentTheme === "dark" ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="4" />
+                  <line x1="12" y1="2" x2="12" y2="4" />
+                  <line x1="12" y1="20" x2="12" y2="22" />
+                  <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+                  <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+                  <line x1="2" y1="12" x2="4" y2="12" />
+                  <line x1="20" y1="12" x2="22" y2="12" />
+                  <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+                  <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
+                </svg>
+              )}
             </button>
             <div className="client-badge">
               <span>Client</span>

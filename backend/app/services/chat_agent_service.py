@@ -49,6 +49,9 @@ LLM_ACCEPT_CONFIDENCE = 0.78
 CLARIFY_CONFIDENCE = 0.55
 ACTION_ACCEPT_CONFIDENCE = 0.68
 
+CLIENT_CODE_PROMPT = "Let's get you into your workspace. Enter your client code below."
+CLIENT_CODE_RETRY_PROMPT = "That code doesn't match our records. Double-check it or contact your BiAgent."
+
 CORE_FIELDS = {
     "project_title",
     "goal",
@@ -121,7 +124,7 @@ class ChatAgentService:
             return self._response(
                 session,
                 self._assistant_text(
-                    fallback="New chat started. Please share your client code to begin.",
+                    fallback=f"New chat started. {CLIENT_CODE_PROMPT}",
                     phase=session.phase,
                     context={"event": "reset_chat", "retry_count": 0},
                 ),
@@ -147,7 +150,7 @@ class ChatAgentService:
                 "summarize everything, and submit it to Monday."
             )
             if session.phase == "await_client_code":
-                help_fallback += " Please share your client code to get started."
+                help_fallback += f" {CLIENT_CODE_PROMPT}"
             return self._response(
                 session,
                 self._assistant_text(
@@ -173,7 +176,7 @@ class ChatAgentService:
         return self._response(
             session,
             self._assistant_text(
-                fallback="I reset the chat state. Please share your client code to continue.",
+                fallback=f"I reset the chat state. {CLIENT_CODE_PROMPT}",
                 phase=session.phase,
             ),
         )
@@ -991,8 +994,8 @@ class ChatAgentService:
     def _welcome_fallback(self, session: ChatSession) -> str:
         greeting = self._time_of_day_greeting()
         if session.user_name:
-            return f"{greeting}, {session.user_name}. Please share your client code to start."
-        return f"{greeting}. I am biaBot and I can capture your intake request. Please share your client code."
+            return f"{greeting}, {session.user_name}. {CLIENT_CODE_PROMPT}"
+        return f"{greeting}. I am biaBot and I can capture your intake request. {CLIENT_CODE_PROMPT}"
 
     def _try_handle_pre_auth_dialog(
         self,
@@ -1109,7 +1112,7 @@ class ChatAgentService:
     ) -> str:
         name = detected_name or session.user_name
         if detected_name:
-            return f"Hi {detected_name}. Please share your client code to continue."
+            return f"Hi {detected_name}. {CLIENT_CODE_PROMPT}"
 
         if CLIENT_CODE_TERM_PATTERN.search(message) and (
             "?" in message or CLIENT_CODE_HELP_HINT_PATTERN.search(message)
@@ -1123,12 +1126,12 @@ class ChatAgentService:
         if GREETING_PATTERN.search(message) or IDENTITY_PATTERN.search(message):
             greeting = self._time_of_day_greeting()
             if name:
-                return f"{greeting}, {name}. Please share your client code so I can start your intake."
-            return f"{greeting}. I am biaBot. Please share your client code so I can start your intake."
+                return f"{greeting}, {name}. {CLIENT_CODE_PROMPT}"
+            return f"{greeting}. I am biaBot. {CLIENT_CODE_PROMPT}"
 
         if name:
-            return f"Thanks {name}. Please share your client code when you are ready."
-        return "Please share your client code when you are ready."
+            return f"Thanks {name}. {CLIENT_CODE_PROMPT}"
+        return CLIENT_CODE_PROMPT
 
     def _client_code_retry_fallback(
         self,
@@ -1147,8 +1150,8 @@ class ChatAgentService:
             break
 
         if preferred:
-            return f"I could not verify \"{preferred}\" yet. Please resend the exact client code."
-        return "I could not verify that client code yet. Please send the exact code your company provided."
+            return f"\"{preferred}\" does not match our records. Double-check it or contact your BiAgent."
+        return CLIENT_CODE_RETRY_PROMPT
 
     def _service_retry_fallback(self, session: ChatSession, options: list[str]) -> str:
         if options:

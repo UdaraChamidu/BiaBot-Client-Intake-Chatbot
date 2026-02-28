@@ -198,7 +198,8 @@ class OpenAIService:
             "Rules:\n"
             "1) If a client code is provided or strongly implied, set intent=submit_client_code.\n"
             "2) If user asks what client code means or where to find it, use ask_client_code_info.\n"
-            "3) assistant_reply must be friendly and ask for client code to continue intake.\n"
+            "3) assistant_reply must be friendly and invite client-code entry with this wording when relevant: "
+            "\"Let's get you into your workspace. Enter your client code below.\"\n"
             "4) Keep assistant_reply within intake scope.\n\n"
             + json.dumps(payload)
         )

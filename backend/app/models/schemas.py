@@ -4,7 +4,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TimeSensitivity(str, Enum):
@@ -31,6 +31,90 @@ class ClientProfile(BaseModel):
     turnaround_rules: str | None = None
     compliance_notes: str | None = None
     service_options: list[str] = Field(default_factory=list)
+
+
+class AdminClientProfileUpsert(BaseModel):
+    client_name: str
+    client_code: str
+    brand_voice_rules: str
+    words_to_avoid: list[str] = Field(default_factory=list)
+    required_disclaimers: str
+    preferred_tone: str
+    common_audiences: list[str] = Field(default_factory=list)
+    default_approver: str
+    subscription_tier: str
+    credit_menu: dict[str, int] = Field(default_factory=dict)
+    turnaround_rules: str | None = None
+    compliance_notes: str | None = None
+    service_options: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "client_name",
+        "client_code",
+        "brand_voice_rules",
+        "required_disclaimers",
+        "preferred_tone",
+        "default_approver",
+        "subscription_tier",
+        mode="before",
+    )
+    @classmethod
+    def _required_text(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("This field is required.")
+        return text
+
+    @field_validator("client_code", mode="after")
+    @classmethod
+    def _normalize_client_code(cls, value: str) -> str:
+        return value.upper()
+
+    @field_validator("turnaround_rules", "compliance_notes", mode="before")
+    @classmethod
+    def _optional_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @field_validator("words_to_avoid", "common_audiences", mode="before")
+    @classmethod
+    def _required_list(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            raise ValueError("Must be a list of text values.")
+        cleaned = [str(item).strip() for item in value if str(item).strip()]
+        if not cleaned:
+            raise ValueError("At least one item is required.")
+        return cleaned
+
+    @field_validator("service_options", mode="before")
+    @classmethod
+    def _optional_service_options(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    @field_validator("credit_menu", mode="before")
+    @classmethod
+    def _required_credit_menu(cls, value: Any) -> dict[str, int]:
+        if not isinstance(value, dict):
+            raise ValueError("Credit menu must be an object.")
+        cleaned: dict[str, int] = {}
+        for raw_key, raw_value in value.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            try:
+                credits = int(raw_value)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                raise ValueError(f'Credit value for "{key}" must be an integer.') from exc
+            if credits < 0:
+                raise ValueError(f'Credit value for "{key}" must be non-negative.')
+            cleaned[key] = credits
+        if not cleaned:
+            raise ValueError("At least one credit menu item is required.")
+        return cleaned
 
 
 class ClientCodeResponse(BaseModel):

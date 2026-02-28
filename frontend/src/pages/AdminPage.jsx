@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import {
+  deleteClientProfile,
   getClientProfiles,
   getRequestLogs,
   getServiceOptions,
@@ -12,6 +13,23 @@ import {
 import { getStoredTheme, toggleTheme } from "../utils/theme";
 
 const NEW_PROFILE_ID = "__new__";
+
+const PROFILE_PLACEHOLDERS = {
+  client_name: "ReadyOne Industries",
+  client_code: "READYONE01",
+  brand_voice_rules: "Direct, confident, workforce-centered. Avoid corporate fluff.",
+  words_to_avoid: "empowerment journey\ndisruption",
+  required_disclaimers: "EOE employer statement required on recruitment materials.",
+  preferred_tone: "confident and straightforward",
+  common_audiences: "job seekers\nemployers\ninternal staff",
+  default_approver: "Lupita R.",
+  subscription_tier: "Tier 2",
+  turnaround_rules: "Standard: 5 business days. Urgent: 48 hours.",
+  compliance_notes: "Use approved legal templates for external statements.",
+  service_options: "Campaign set (up to 6 assets)\nCustom graphic",
+  credit_service_key: "custom_graphic",
+  credit_value: "25",
+};
 
 const EMPTY_PROFILE_TEMPLATE = {
   client_name: "",
@@ -95,6 +113,11 @@ function buildCreditMenu(creditRows) {
   return creditMenu;
 }
 
+function displayValue(value, fallback = "Not set") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
 export default function AdminPage() {
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
@@ -112,6 +135,7 @@ export default function AdminPage() {
   const [logLimit, setLogLimit] = useState(100);
 
   const [activeTab, setActiveTab] = useState("profiles");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
 
   const selectedProfileLabel = useMemo(() => {
@@ -121,9 +145,18 @@ export default function AdminPage() {
     return selectedClientCode || "New profile";
   }, [selectedClientCode]);
 
+  const selectedProfile = useMemo(
+    () => profiles.find((profile) => profile.client_code === selectedClientCode) ?? null,
+    [profiles, selectedClientCode]
+  );
+
   function handleThemeToggle() {
     const next = toggleTheme();
     setCurrentTheme(next);
+  }
+
+  function handleNotificationsToggle() {
+    setNotificationsEnabled((prev) => !prev);
   }
 
   function hydrateProfileForm(profile) {
@@ -257,14 +290,63 @@ export default function AdminPage() {
     });
   }
 
+  function validateProfileForm() {
+    const requiredTextFields = [
+      ["client_code", "Client code"],
+      ["client_name", "Client name"],
+      ["brand_voice_rules", "Brand voice rules"],
+      ["required_disclaimers", "Required disclaimers"],
+      ["preferred_tone", "Preferred tone"],
+      ["default_approver", "Default approver"],
+      ["subscription_tier", "Subscription tier"],
+    ];
+
+    for (const [field, label] of requiredTextFields) {
+      const value = String(profileForm[field] ?? "").trim();
+      if (!value) {
+        return `${label} is required.`;
+      }
+    }
+
+    if (!profileForm.words_to_avoid?.length) {
+      return "Words to avoid requires at least one item.";
+    }
+    if (!profileForm.common_audiences?.length) {
+      return "Common audiences requires at least one item.";
+    }
+
+    try {
+      buildCreditMenu(creditRows);
+    } catch (validationError) {
+      return validationError?.message ?? "Credit menu is invalid.";
+    }
+
+    return "";
+  }
+
   async function saveProfile() {
     if (!adminPassword) {
+      return;
+    }
+
+    const validationError = validateProfileForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     const normalizedCode = profileForm.client_code.trim().toUpperCase();
     const normalizedName = profileForm.client_name.trim();
     const normalizedVoiceRules = profileForm.brand_voice_rules.trim();
+    const normalizedDisclaimers = profileForm.required_disclaimers.trim();
+    const normalizedTone = profileForm.preferred_tone.trim();
+    const normalizedApprover = profileForm.default_approver.trim();
+    const normalizedTier = profileForm.subscription_tier.trim();
+    const normalizedTurnaroundRules = profileForm.turnaround_rules.trim();
+    const normalizedComplianceNotes = profileForm.compliance_notes.trim();
+    const normalizedWordsToAvoid = profileForm.words_to_avoid.map((item) => item.trim()).filter(Boolean);
+    const normalizedCommonAudiences = profileForm.common_audiences.map((item) => item.trim()).filter(Boolean);
+    const normalizedServiceOptions = profileForm.service_options.map((item) => item.trim()).filter(Boolean);
 
     if (!normalizedCode || !normalizedName || !normalizedVoiceRules) {
       setError("Client code, client name, and brand voice rules are required.");
@@ -280,17 +362,55 @@ export default function AdminPage() {
         client_code: normalizedCode,
         client_name: normalizedName,
         brand_voice_rules: normalizedVoiceRules,
-        words_to_avoid: profileForm.words_to_avoid,
-        common_audiences: profileForm.common_audiences,
-        service_options: profileForm.service_options,
+        words_to_avoid: normalizedWordsToAvoid,
+        required_disclaimers: normalizedDisclaimers,
+        preferred_tone: normalizedTone,
+        common_audiences: normalizedCommonAudiences,
+        default_approver: normalizedApprover,
+        subscription_tier: normalizedTier,
+        turnaround_rules: normalizedTurnaroundRules || null,
+        compliance_notes: normalizedComplianceNotes || null,
+        service_options: normalizedServiceOptions,
         credit_menu: buildCreditMenu(creditRows),
       };
       const saved = await upsertClientProfile(adminPassword, payload);
       await loadAdminData(adminPassword, saved.client_code);
       setNotice(`Profile saved for ${saved.client_code}.`);
+      setActiveTab("clients");
     } catch (requestError) {
       const detail = requestError?.response?.data?.detail;
       setError(detail ?? requestError?.message ?? "Unable to save profile.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeProfile(code = selectedClientCode) {
+    if (!adminPassword || !code || code === NEW_PROFILE_ID) {
+      return;
+    }
+
+    const profile = profiles.find((row) => row.client_code === code);
+    const confirmationTarget = profile ? `${profile.client_name} (${profile.client_code})` : code;
+    const confirmed = window.confirm(
+      `Delete client profile ${confirmationTarget}? This action cannot be undone.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      await deleteClientProfile(adminPassword, code);
+      const remaining = profiles.filter((row) => row.client_code !== code);
+      const nextCode = remaining[0]?.client_code ?? NEW_PROFILE_ID;
+      await loadAdminData(adminPassword, nextCode);
+      setNotice(`Client profile ${code} deleted.`);
+    } catch (requestError) {
+      const detail = requestError?.response?.data?.detail;
+      setError(detail ?? "Unable to delete client profile.");
     } finally {
       setLoading(false);
     }
@@ -384,11 +504,42 @@ export default function AdminPage() {
         </nav>
         <button
           type="button"
-          className="theme-toggle-btn"
-          onClick={handleThemeToggle}
-          aria-label="Toggle theme"
+          className={`topbar-icon-btn ${notificationsEnabled ? "active" : ""}`}
+          onClick={handleNotificationsToggle}
+          aria-label={notificationsEnabled ? "Disable notifications" : "Enable notifications"}
+          aria-pressed={notificationsEnabled}
+          title={notificationsEnabled ? "Notifications on" : "Notifications off"}
         >
-          {currentTheme === "dark" ? "Light" : "Dark"}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+            <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
+            {!notificationsEnabled && <line x1="4" y1="4" x2="20" y2="20" />}
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="topbar-icon-btn"
+          onClick={handleThemeToggle}
+          aria-label={currentTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          title={currentTheme === "dark" ? "Light theme" : "Dark theme"}
+        >
+          {currentTheme === "dark" ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <line x1="12" y1="2" x2="12" y2="4" />
+              <line x1="12" y1="20" x2="12" y2="22" />
+              <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+              <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+              <line x1="2" y1="12" x2="4" y2="12" />
+              <line x1="20" y1="12" x2="22" y2="12" />
+              <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+              <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
+            </svg>
+          )}
         </button>
         {isAuthenticated && (
           <>
@@ -455,6 +606,13 @@ export default function AdminPage() {
         </button>
         <button
           type="button"
+          className={`admin-tab ${activeTab === "clients" ? "active" : ""}`}
+          onClick={() => setActiveTab("clients")}
+        >
+          Client Directory
+        </button>
+        <button
+          type="button"
           className={`admin-tab ${activeTab === "services" ? "active" : ""}`}
           onClick={() => setActiveTab("services")}
         >
@@ -498,111 +656,144 @@ export default function AdminPage() {
                 </div>
 
                 <p className="muted-text">Editing: {selectedProfileLabel}</p>
+                <p className="muted-text">Only Turnaround Rules and Compliance Notes are optional.</p>
 
                 <div className="admin-form-grid">
                   <label className="admin-field">
                     Client Name
                     <input
+                      required
                       value={profileForm.client_name}
                       onChange={(event) => updateProfileField("client_name", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.client_name}
                     />
                   </label>
                   <label className="admin-field">
                     Client Code
                     <input
+                      required
                       value={profileForm.client_code}
                       onChange={(event) => updateProfileField("client_code", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.client_code}
                     />
                   </label>
                   <label className="admin-field">
                     Subscription Tier
                     <input
+                      required
                       value={profileForm.subscription_tier}
                       onChange={(event) => updateProfileField("subscription_tier", event.target.value)}
-                      placeholder="Tier 1 / Tier 2"
+                      placeholder={PROFILE_PLACEHOLDERS.subscription_tier}
                     />
                   </label>
                   <label className="admin-field">
                     Default Approver
                     <input
+                      required
                       value={profileForm.default_approver}
                       onChange={(event) => updateProfileField("default_approver", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.default_approver}
                     />
                   </label>
                   <label className="admin-field">
                     Preferred Tone
                     <input
+                      required
                       value={profileForm.preferred_tone}
                       onChange={(event) => updateProfileField("preferred_tone", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.preferred_tone}
                     />
                   </label>
                   <label className="admin-field admin-field-wide">
                     Brand Voice Rules
                     <textarea
+                      required
                       rows="3"
                       value={profileForm.brand_voice_rules}
                       onChange={(event) => updateProfileField("brand_voice_rules", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.brand_voice_rules}
                     />
                   </label>
                   <label className="admin-field">
                     Words To Avoid (one per line)
                     <textarea
+                      required
                       rows="4"
                       value={linesToText(profileForm.words_to_avoid)}
                       onChange={(event) =>
                         updateProfileField("words_to_avoid", parseLines(event.target.value))
                       }
+                      placeholder={PROFILE_PLACEHOLDERS.words_to_avoid}
                     />
                   </label>
                   <label className="admin-field">
                     Common Audiences (one per line)
                     <textarea
+                      required
                       rows="4"
                       value={linesToText(profileForm.common_audiences)}
                       onChange={(event) =>
                         updateProfileField("common_audiences", parseLines(event.target.value))
                       }
+                      placeholder={PROFILE_PLACEHOLDERS.common_audiences}
                     />
                   </label>
                   <label className="admin-field">
-                    Service List For This Client (one per line)
+                    Service List For This Client (optional)
                     <textarea
                       rows="4"
                       value={linesToText(profileForm.service_options)}
                       onChange={(event) =>
                         updateProfileField("service_options", parseLines(event.target.value))
                       }
+                      placeholder={PROFILE_PLACEHOLDERS.service_options}
                     />
                   </label>
                   <label className="admin-field admin-field-wide">
                     Required Disclaimers
                     <textarea
+                      required
                       rows="3"
                       value={profileForm.required_disclaimers}
                       onChange={(event) => updateProfileField("required_disclaimers", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.required_disclaimers}
                     />
                   </label>
                   <label className="admin-field admin-field-wide">
-                    Turnaround Rules
+                    Turnaround Rules (optional)
                     <textarea
                       rows="3"
                       value={profileForm.turnaround_rules}
                       onChange={(event) => updateProfileField("turnaround_rules", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.turnaround_rules}
                     />
                   </label>
                   <label className="admin-field admin-field-wide">
-                    Compliance Notes
+                    Compliance Notes (optional)
                     <textarea
                       rows="3"
                       value={profileForm.compliance_notes}
                       onChange={(event) => updateProfileField("compliance_notes", event.target.value)}
+                      placeholder={PROFILE_PLACEHOLDERS.compliance_notes}
                     />
                   </label>
                 </div>
 
-                <button type="button" className="primary-btn" onClick={saveProfile} disabled={loading}>
-                  {loading ? "Saving..." : "Save Client Profile"}
-                </button>
+                <div className="admin-row">
+                  <button type="button" className="primary-btn" onClick={saveProfile} disabled={loading}>
+                    {loading ? "Saving..." : "Save Client Profile"}
+                  </button>
+                  {selectedClientCode !== NEW_PROFILE_ID && (
+                    <button
+                      type="button"
+                      className="ghost-btn danger-text"
+                      onClick={() => removeProfile()}
+                      disabled={loading}
+                    >
+                      Delete Client
+                    </button>
+                  )}
+                </div>
               </article>
 
               <article className="panel">
@@ -614,14 +805,14 @@ export default function AdminPage() {
                       <input
                         value={row.name}
                         onChange={(event) => updateCreditRow(index, "name", event.target.value)}
-                        placeholder="service_key"
+                        placeholder={PROFILE_PLACEHOLDERS.credit_service_key}
                       />
                       <input
                         type="number"
                         min="0"
                         value={row.credits}
                         onChange={(event) => updateCreditRow(index, "credits", event.target.value)}
-                        placeholder="credits"
+                        placeholder={PROFILE_PLACEHOLDERS.credit_value}
                       />
                       <button
                         type="button"
@@ -642,6 +833,181 @@ export default function AdminPage() {
                     {loading ? "Saving..." : "Save Credit Menu"}
                   </button>
                 </div>
+              </article>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "clients" && (
+          <div className="admin-section">
+            <div className="client-directory-grid">
+              <article className="panel">
+                <div className="panel-header">
+                  <h3>Client Directory</h3>
+                  <span className="tab-badge">{profiles.length}</span>
+                </div>
+                <p className="muted-text">Select a client to view the full profile in the details panel.</p>
+                <div className="client-directory-list">
+                  {profiles.length === 0 && (
+                    <p className="muted-text">No client profiles found yet.</p>
+                  )}
+                  {profiles.map((profile) => (
+                    <button
+                      key={profile.client_code}
+                      type="button"
+                      className={`client-directory-item ${selectedClientCode === profile.client_code ? "active" : ""}`}
+                      onClick={() => handleProfileSelect(profile.client_code)}
+                    >
+                      <strong>{profile.client_name}</strong>
+                      <span>{profile.client_code}</span>
+                    </button>
+                  ))}
+                </div>
+              </article>
+
+              <article className="panel">
+                {!selectedProfile && (
+                  <p className="muted-text">Choose a client from the directory to preview the full profile.</p>
+                )}
+                {selectedProfile && (
+                  <>
+                    <div className="panel-header">
+                      <h3>{selectedProfile.client_name}</h3>
+                      <span className="table-badge">{selectedProfile.client_code}</span>
+                    </div>
+                    <p className="muted-text">
+                      Review this profile and edit or delete it from here.
+                    </p>
+                    <div className="client-profile-preview">
+                      <div className="client-profile-meta-grid">
+                        <div className="client-profile-meta-item">
+                          <p className="client-profile-meta-label">Client Name</p>
+                          <p className="client-profile-meta-value">{displayValue(selectedProfile.client_name)}</p>
+                        </div>
+                        <div className="client-profile-meta-item">
+                          <p className="client-profile-meta-label">Client Code</p>
+                          <p className="client-profile-meta-value">{displayValue(selectedProfile.client_code)}</p>
+                        </div>
+                        <div className="client-profile-meta-item">
+                          <p className="client-profile-meta-label">Preferred Tone</p>
+                          <p className="client-profile-meta-value">{displayValue(selectedProfile.preferred_tone)}</p>
+                        </div>
+                        <div className="client-profile-meta-item">
+                          <p className="client-profile-meta-label">Default Approver</p>
+                          <p className="client-profile-meta-value">{displayValue(selectedProfile.default_approver)}</p>
+                        </div>
+                        <div className="client-profile-meta-item">
+                          <p className="client-profile-meta-label">Subscription Tier</p>
+                          <p className="client-profile-meta-value">{displayValue(selectedProfile.subscription_tier)}</p>
+                        </div>
+                        <div className="client-profile-meta-item">
+                          <p className="client-profile-meta-label">Service Overrides</p>
+                          <p className="client-profile-meta-value">
+                            {selectedProfile.service_options?.length
+                              ? `${selectedProfile.service_options.length} configured`
+                              : "Using global services"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <h4>Brand Voice Rules</h4>
+                        <p>{displayValue(selectedProfile.brand_voice_rules)}</p>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <h4>Required Disclaimers</h4>
+                        <p>{displayValue(selectedProfile.required_disclaimers)}</p>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <h4>Turnaround Rules (Optional)</h4>
+                        <p>{displayValue(selectedProfile.turnaround_rules)}</p>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <h4>Compliance Notes (Optional)</h4>
+                        <p>{displayValue(selectedProfile.compliance_notes)}</p>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <h4>Words To Avoid</h4>
+                        <div className="client-tag-list">
+                          {(selectedProfile.words_to_avoid ?? []).map((item, index) => (
+                            <span key={`avoid-${item}-${index}`} className="client-tag">
+                              {item}
+                            </span>
+                          ))}
+                          {(selectedProfile.words_to_avoid ?? []).length === 0 && (
+                            <span className="muted-text">None configured.</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <h4>Common Audiences</h4>
+                        <div className="client-tag-list">
+                          {(selectedProfile.common_audiences ?? []).map((item, index) => (
+                            <span key={`audience-${item}-${index}`} className="client-tag">
+                              {item}
+                            </span>
+                          ))}
+                          {(selectedProfile.common_audiences ?? []).length === 0 && (
+                            <span className="muted-text">None configured.</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <h4>Credit Menu</h4>
+                        <div className="table-scroll">
+                          <table className="credit-table-compact">
+                            <thead>
+                              <tr>
+                                <th>Service Key</th>
+                                <th>Credits</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(selectedProfile.credit_menu ?? {}).length === 0 && (
+                                <tr>
+                                  <td colSpan={2} className="empty-table-cell">No credit menu items found.</td>
+                                </tr>
+                              )}
+                              {Object.entries(selectedProfile.credit_menu ?? {}).map(([serviceKey, credits]) => (
+                                <tr key={serviceKey}>
+                                  <td>{serviceKey}</td>
+                                  <td>{credits}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="admin-row">
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => {
+                          handleProfileSelect(selectedProfile.client_code);
+                          setActiveTab("profiles");
+                        }}
+                        disabled={loading}
+                      >
+                        Edit Client
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-btn danger-text"
+                        onClick={() => removeProfile(selectedProfile.client_code)}
+                        disabled={loading}
+                      >
+                        Delete Client
+                      </button>
+                    </div>
+                  </>
+                )}
               </article>
             </div>
           </div>

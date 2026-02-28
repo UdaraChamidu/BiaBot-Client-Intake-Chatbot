@@ -314,6 +314,49 @@ body {
   box-shadow: var(--shadow-glow);
 }
 
+.topbar-icon-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white-soft);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.topbar-icon-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.topbar-icon-btn:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.topbar-icon-btn:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.topbar-icon-btn.active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
 /* ───────────────────────────────────────────────
    CARDS & PANELS
    ─────────────────────────────────────────────── */
@@ -1358,6 +1401,140 @@ select:focus {
   grid-template-columns: 2fr 1fr;
 }
 
+.client-directory-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+}
+
+.client-directory-list {
+  display: grid;
+  gap: 8px;
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.client-directory-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.client-directory-item strong {
+  font-size: 0.9rem;
+}
+
+.client-directory-item span {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.client-directory-item:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  transform: translateY(-1px);
+}
+
+.client-directory-item.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.client-profile-preview {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white-soft);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.client-profile-meta-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.client-profile-meta-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.client-profile-meta-label {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.client-profile-meta-value {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.client-profile-block {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.client-profile-block h4 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.client-profile-block p {
+  margin: 0;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.client-tag-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.client-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--white-soft);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1;
+}
+
+.credit-table-compact td,
+.credit-table-compact th {
+  white-space: normal;
+}
+
 /* ───────────────────────────────────────────────
    ADMIN PANELS & FORMS
    ─────────────────────────────────────────────── */
@@ -1542,6 +1719,10 @@ tbody tr:hover {
   .admin-profiles-grid {
     grid-template-columns: 1fr;
   }
+
+  .client-directory-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1588,6 +1769,17 @@ tbody tr:hover {
   .theme-toggle-btn {
     padding: 4px 10px;
     font-size: 0.76rem;
+  }
+
+  .topbar-icon-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .topbar-icon-btn svg {
+    width: 15px;
+    height: 15px;
   }
 
   .client-badge {

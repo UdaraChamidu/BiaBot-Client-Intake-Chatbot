@@ -12,6 +12,7 @@ from app.core.security import (
     require_admin,
 )
 from app.models.schemas import (
+    AdminClientProfileUpsert,
     AdminAuthRequest,
     AdminAuthResponse,
     ChatMessageRequest,
@@ -197,7 +198,7 @@ def admin_list_client_profiles(_: None = Depends(require_admin)) -> list[ClientP
 
 @router.post("/admin/client-profiles", response_model=ClientProfile, tags=["admin"])
 def admin_upsert_client_profile(
-    payload: ClientProfile,
+    payload: AdminClientProfileUpsert,
     _: None = Depends(require_admin),
 ) -> ClientProfile:
     saved = store.upsert_client_profile(payload.model_dump())
@@ -207,13 +208,23 @@ def admin_upsert_client_profile(
 @router.put("/admin/client-profiles/{client_code}", response_model=ClientProfile, tags=["admin"])
 def admin_update_client_profile(
     client_code: str,
-    payload: ClientProfile,
+    payload: AdminClientProfileUpsert,
     _: None = Depends(require_admin),
 ) -> ClientProfile:
     if payload.client_code != client_code:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path code must match payload code")
     saved = store.upsert_client_profile(payload.model_dump())
     return ClientProfile.model_validate(saved)
+
+
+@router.delete("/admin/client-profiles/{client_code}", status_code=status.HTTP_204_NO_CONTENT, tags=["admin"])
+def admin_delete_client_profile(
+    client_code: str,
+    _: None = Depends(require_admin),
+) -> None:
+    deleted = store.delete_client_profile(client_code.strip().upper())
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client profile not found")
 
 
 @router.get("/admin/service-options", response_model=list[str], tags=["admin"])

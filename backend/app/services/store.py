@@ -32,6 +32,12 @@ class InMemoryStore:
         self.client_profiles[profile["client_code"]] = profile
         return profile
 
+    def delete_client_profile(self, client_code: str) -> bool:
+        if client_code not in self.client_profiles:
+            return False
+        del self.client_profiles[client_code]
+        return True
+
     def list_service_options(self) -> list[str]:
         return self.service_options
 
@@ -97,6 +103,13 @@ class SupabaseStore:
         )
         rows = response.data or []
         return rows[0] if rows else profile
+
+    def delete_client_profile(self, client_code: str) -> bool:
+        existing = self.get_client_profile(client_code)
+        if not existing:
+            return False
+        self.client.table("client_profiles").delete().eq("client_code", client_code).execute()
+        return True
 
     def list_service_options(self) -> list[str]:
         response = (
