@@ -1,8 +1,10 @@
 import { adminHeaders, apiClient } from "./apiClient";
 
 export async function verifyAdminPassword(password) {
-  const { data } = await apiClient.post("/admin/auth", { password });
-  return data;
+  await apiClient.get("/admin/client-profiles", {
+    headers: adminHeaders(password),
+  });
+  return { ok: true };
 }
 
 export async function getClientProfiles(adminPassword) {
