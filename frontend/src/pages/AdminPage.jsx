@@ -626,8 +626,6 @@ export default function AdminPage() {
   if (!isAuthenticated) {
     return (
       <section className="admin-login-screen">
-        {adminTopbar}
-
         <div className="admin-login-stack">
           {error && <p className="error-banner">{error}</p>}
 

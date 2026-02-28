@@ -178,6 +178,7 @@ body {
   background-position: center center;
   background-size: cover;
   background-attachment: fixed;
+  scrollbar-gutter: stable;
   transition: color var(--transition-base);
 }
 
@@ -545,6 +546,8 @@ select:focus {
   gap: 14px;
   overflow-y: auto;
   z-index: 20;
+  margin-top: 15px;
+  margin-left: 3px;
 }
 
 .chat-sidebar.open {
@@ -599,6 +602,7 @@ select:focus {
   display: grid;
   gap: 8px;
   transition: border-color var(--transition-fast);
+  
 }
 
 .sidebar-section:hover {
@@ -611,6 +615,7 @@ select:focus {
   color: var(--muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  
 }
 
 .sidebar-profile {
@@ -1419,6 +1424,8 @@ select:focus {
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-sm);
   transition: border-color var(--transition-fast);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .admin-topbar h2 {
@@ -1442,8 +1449,8 @@ select:focus {
 }
 
 .admin-login-screen .admin-topbar {
-  width: 100%;
-  max-width: 1400px;
+  width: min(1400px, calc(100vw - 32px));
+  max-width: none;
   margin-bottom: auto;
 }
 
@@ -1535,7 +1542,8 @@ select:focus {
   display: grid;
   gap: 16px;
   align-content: start;
-  max-width: 1400px;
+  width: min(1400px, calc(100vw - 48px));
+  max-width: none;
   margin: 0 auto;
   animation: fadeSlideUp 0.3s ease forwards;
 }
@@ -2411,6 +2419,10 @@ tbody tr:hover {
     min-height: 100dvh;
   }
 
+  .admin-login-screen .admin-topbar {
+    width: calc(100vw - 20px);
+  }
+
   .admin-login-card {
     padding: 22px 18px;
     border-radius: 14px;
@@ -2422,6 +2434,7 @@ tbody tr:hover {
 
   .admin-layout {
     padding: 12px 12px 24px;
+    width: calc(100vw - 24px);
   }
 
   .admin-tabs {
