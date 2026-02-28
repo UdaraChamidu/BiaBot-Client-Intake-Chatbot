@@ -118,6 +118,18 @@ function displayValue(value, fallback = "Not set") {
   return text || fallback;
 }
 
+function clientInitials(name) {
+  const text = String(name ?? "").trim();
+  if (!text) {
+    return "C";
+  }
+  const parts = text.split(/\s+/);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }
+  return text.slice(0, 2).toUpperCase();
+}
+
 export default function AdminPage() {
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
@@ -133,6 +145,8 @@ export default function AdminPage() {
   const [serviceOptionsText, setServiceOptionsText] = useState("");
   const [logs, setLogs] = useState([]);
   const [logLimit, setLogLimit] = useState(100);
+  const [clientDirectoryQuery, setClientDirectoryQuery] = useState("");
+  const [logsQuery, setLogsQuery] = useState("");
 
   const [activeTab, setActiveTab] = useState("profiles");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -149,6 +163,60 @@ export default function AdminPage() {
     () => profiles.find((profile) => profile.client_code === selectedClientCode) ?? null,
     [profiles, selectedClientCode]
   );
+
+  const filteredProfiles = useMemo(() => {
+    const query = clientDirectoryQuery.trim().toLowerCase();
+    if (!query) {
+      return profiles;
+    }
+    return profiles.filter((profile) => {
+      const searchable = [
+        profile.client_name,
+        profile.client_code,
+        profile.subscription_tier,
+        profile.preferred_tone,
+        profile.default_approver,
+      ];
+      return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
+    });
+  }, [profiles, clientDirectoryQuery]);
+
+  const serviceOptionItems = useMemo(
+    () => parseLines(serviceOptionsText),
+    [serviceOptionsText]
+  );
+
+  const creditSummary = useMemo(() => {
+    let configuredItems = 0;
+    let totalCredits = 0;
+    for (const row of creditRows) {
+      const serviceKey = String(row.name ?? "").trim();
+      const credits = Number.parseInt(String(row.credits ?? ""), 10);
+      if (!serviceKey || !Number.isInteger(credits) || credits < 0) {
+        continue;
+      }
+      configuredItems += 1;
+      totalCredits += credits;
+    }
+    return { configuredItems, totalCredits };
+  }, [creditRows]);
+
+  const filteredLogs = useMemo(() => {
+    const query = logsQuery.trim().toLowerCase();
+    if (!query) {
+      return logs;
+    }
+    return logs.filter((log) => {
+      const searchable = [
+        log.client_code,
+        log.client_name,
+        log.service_type,
+        log.project_title,
+        log.monday_item_id,
+      ];
+      return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
+    });
+  }, [logs, logsQuery]);
 
   function handleThemeToggle() {
     const next = toggleTheme();
@@ -796,36 +864,59 @@ export default function AdminPage() {
                 </div>
               </article>
 
-              <article className="panel">
-                <h3>Credit Menu</h3>
-                <p className="muted-text">Define credits by service key for {selectedProfileLabel}.</p>
-                <div className="credit-menu-list">
-                  {creditRows.map((row, index) => (
-                    <div className="credit-menu-row" key={`${index}-${row.name}`}>
-                      <input
-                        value={row.name}
-                        onChange={(event) => updateCreditRow(index, "name", event.target.value)}
-                        placeholder={PROFILE_PLACEHOLDERS.credit_service_key}
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.credits}
-                        onChange={(event) => updateCreditRow(index, "credits", event.target.value)}
-                        placeholder={PROFILE_PLACEHOLDERS.credit_value}
-                      />
-                      <button
-                        type="button"
-                        className="ghost-btn danger-text"
-                        onClick={() => removeCreditRow(index)}
-                        disabled={loading}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
+              <article className="panel credit-menu-panel">
+                <div className="panel-header">
+                  <h3>Credit Menu</h3>
+                  <span className="tab-badge">{creditSummary.configuredItems}</span>
                 </div>
-                <div className="admin-row">
+                <p className="muted-text">
+                  Define credits by service key for {selectedProfileLabel}. These values drive usage accounting and
+                  approval flow.
+                </p>
+                <div className="credit-menu-summary">
+                  <span className="summary-pill">{creditSummary.configuredItems} configured services</span>
+                  <span className="summary-pill">{creditSummary.totalCredits} total credits</span>
+                </div>
+                <div className="credit-menu-scroll">
+                  <div className="credit-menu-list">
+                    {creditRows.map((row, index) => (
+                      <div className="credit-menu-card" key={`${index}-${row.name}`}>
+                        <div className="credit-menu-card-head">
+                          <span className="credit-menu-index">Item {index + 1}</span>
+                          <button
+                            type="button"
+                            className="ghost-btn danger-text"
+                            onClick={() => removeCreditRow(index)}
+                            disabled={loading}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="credit-menu-row">
+                          <label className="admin-field">
+                            Service Key
+                            <input
+                              value={row.name}
+                              onChange={(event) => updateCreditRow(index, "name", event.target.value)}
+                              placeholder={PROFILE_PLACEHOLDERS.credit_service_key}
+                            />
+                          </label>
+                          <label className="admin-field">
+                            Credits
+                            <input
+                              type="number"
+                              min="0"
+                              value={row.credits}
+                              onChange={(event) => updateCreditRow(index, "credits", event.target.value)}
+                              placeholder={PROFILE_PLACEHOLDERS.credit_value}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="admin-row credit-menu-actions">
                   <button type="button" className="ghost-btn" onClick={addCreditRow} disabled={loading}>
                     + Add Credit Item
                   </button>
@@ -841,25 +932,57 @@ export default function AdminPage() {
         {activeTab === "clients" && (
           <div className="admin-section">
             <div className="client-directory-grid">
-              <article className="panel">
+              <article className="panel client-directory-panel">
                 <div className="panel-header">
                   <h3>Client Directory</h3>
                   <span className="tab-badge">{profiles.length}</span>
                 </div>
                 <p className="muted-text">Select a client to view the full profile in the details panel.</p>
-                <div className="client-directory-list">
-                  {profiles.length === 0 && (
-                    <p className="muted-text">No client profiles found yet.</p>
+                <div className="client-directory-toolbar">
+                  <input
+                    value={clientDirectoryQuery}
+                    onChange={(event) => setClientDirectoryQuery(event.target.value)}
+                    placeholder="Search by client name or code"
+                    aria-label="Search clients"
+                  />
+                  {clientDirectoryQuery.trim() && (
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => setClientDirectoryQuery("")}
+                    >
+                      Clear
+                    </button>
                   )}
-                  {profiles.map((profile) => (
+                </div>
+                <p className="muted-text">
+                  Showing {filteredProfiles.length} of {profiles.length} client profiles.
+                </p>
+                <div className="client-directory-list">
+                  {filteredProfiles.length === 0 && (
+                    <p className="muted-text">
+                      {profiles.length === 0 ? "No client profiles found yet." : "No clients match your search."}
+                    </p>
+                  )}
+                  {filteredProfiles.map((profile) => (
                     <button
                       key={profile.client_code}
                       type="button"
                       className={`client-directory-item ${selectedClientCode === profile.client_code ? "active" : ""}`}
                       onClick={() => handleProfileSelect(profile.client_code)}
+                      aria-pressed={selectedClientCode === profile.client_code}
                     >
-                      <strong>{profile.client_name}</strong>
-                      <span>{profile.client_code}</span>
+                      <span className="client-directory-avatar">{clientInitials(profile.client_name)}</span>
+                      <span className="client-directory-content">
+                        <span className="client-directory-title-row">
+                          <strong>{profile.client_name}</strong>
+                          <span className="client-directory-code">{profile.client_code}</span>
+                        </span>
+                        <span className="client-directory-meta">
+                          <span>{displayValue(profile.subscription_tier, "No tier")}</span>
+                          <span>{displayValue(profile.preferred_tone, "No tone")}</span>
+                        </span>
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -1015,44 +1138,106 @@ export default function AdminPage() {
 
         {activeTab === "services" && (
           <div className="admin-section">
-            <article className="panel">
-              <h3>Global Service List Options</h3>
+            <article className="panel service-options-panel">
+              <div className="panel-header">
+                <h3>Global Service List Options</h3>
+                <span className="tab-badge">{serviceOptionItems.length}</span>
+              </div>
               <p className="muted-text">These options appear when a client profile does not override them.</p>
-              <textarea
-                rows="12"
-                value={serviceOptionsText}
-                onChange={(event) => setServiceOptionsText(event.target.value)}
-                placeholder="One service option per line"
-              />
-              <button type="button" className="primary-btn" onClick={saveServiceOptions} disabled={loading}>
-                {loading ? "Saving..." : "Save Service Options"}
-              </button>
+              <div className="service-options-layout">
+                <section className="service-options-editor">
+                  <div className="service-options-toolbar">
+                    <span className="muted-text">Add one service option per line.</span>
+                    <span className="summary-pill">{serviceOptionItems.length} total options</span>
+                  </div>
+                  <textarea
+                    className="service-options-textarea"
+                    rows="12"
+                    value={serviceOptionsText}
+                    onChange={(event) => setServiceOptionsText(event.target.value)}
+                    placeholder="One service option per line"
+                  />
+                  <div className="service-options-actions">
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      onClick={saveServiceOptions}
+                      disabled={loading}
+                    >
+                      {loading ? "Saving..." : "Save Service Options"}
+                    </button>
+                  </div>
+                </section>
+                <section className="service-options-preview-panel">
+                  <h4>Preview</h4>
+                  <p className="muted-text">These chips represent the options shown to users in intake forms.</p>
+                  <div className="service-options-preview">
+                    {serviceOptionItems.length === 0 && (
+                      <span className="muted-text">No service options configured yet.</span>
+                    )}
+                    {serviceOptionItems.slice(0, 18).map((option, index) => (
+                      <span key={`${option}-${index}`} className="service-option-chip">
+                        {option}
+                      </span>
+                    ))}
+                    {serviceOptionItems.length > 18 && (
+                      <span className="service-option-chip">+{serviceOptionItems.length - 18} more</span>
+                    )}
+                  </div>
+                </section>
+              </div>
             </article>
           </div>
         )}
 
         {activeTab === "logs" && (
           <div className="admin-section">
-            <article className="panel">
+            <article className="panel logs-panel">
               <div className="logs-controls">
-                <h3>Request Logs</h3>
-                <label htmlFor="logs-limit">Limit</label>
-                <select
-                  id="logs-limit"
-                  value={String(logLimit)}
-                  onChange={(event) => setLogLimit(Number.parseInt(event.target.value, 10))}
-                >
-                  <option value="25">25</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                  <option value="200">200</option>
-                </select>
-                <button type="button" className="ghost-btn" onClick={refreshLogs} disabled={loading}>
-                  Refresh Logs
-                </button>
+                <div className="panel-header">
+                  <h3>Request Logs</h3>
+                  <span className="tab-badge">{logs.length}</span>
+                </div>
+                <p className="muted-text">Audit history of requests submitted from the intake workspace.</p>
+                <div className="logs-filters">
+                  <label htmlFor="logs-limit">Limit</label>
+                  <select
+                    id="logs-limit"
+                    value={String(logLimit)}
+                    onChange={(event) => setLogLimit(Number.parseInt(event.target.value, 10))}
+                  >
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                  </select>
+                  <input
+                    value={logsQuery}
+                    onChange={(event) => setLogsQuery(event.target.value)}
+                    placeholder="Search by client, service, project, or Monday item"
+                    aria-label="Search request logs"
+                  />
+                  {logsQuery.trim() && (
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => setLogsQuery("")}
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button type="button" className="ghost-btn" onClick={refreshLogs} disabled={loading}>
+                    Refresh Logs
+                  </button>
+                </div>
+                <div className="logs-summary">
+                  <span className="summary-pill">Visible: {filteredLogs.length}</span>
+                  <span className="summary-pill">Loaded: {logs.length}</span>
+                  <span className="summary-pill">Limit: {logLimit}</span>
+                </div>
               </div>
               <div className="table-scroll">
-                <table>
+                <table className="logs-table">
                   <thead>
                     <tr>
                       <th>Created</th>
@@ -1063,15 +1248,24 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {logs.length === 0 && (
+                    {filteredLogs.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="empty-table-cell">No request logs found.</td>
+                        <td colSpan={5} className="empty-table-cell">
+                          {logs.length === 0 ? "No request logs found." : "No logs match your search."}
+                        </td>
                       </tr>
                     )}
-                    {logs.map((log) => (
+                    {filteredLogs.map((log) => (
                       <tr key={log.id}>
-                        <td>{new Date(log.created_at).toLocaleString()}</td>
-                        <td><span className="table-badge">{log.client_code}</span></td>
+                        <td>
+                          <time dateTime={log.created_at}>{new Date(log.created_at).toLocaleString()}</time>
+                        </td>
+                        <td>
+                          <div className="logs-client">
+                            <span className="table-badge">{log.client_code}</span>
+                            <span>{displayValue(log.client_name, "Unknown client")}</span>
+                          </div>
+                        </td>
                         <td>{log.service_type}</td>
                         <td>{log.project_title}</td>
                         <td>{log.monday_item_id ?? "-"}</td>

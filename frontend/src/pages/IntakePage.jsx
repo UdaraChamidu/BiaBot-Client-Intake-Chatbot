@@ -34,6 +34,11 @@ function getUserInitials(profile) {
   return name[0].toUpperCase();
 }
 
+function displayText(value, fallback = "Not set") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
 export default function IntakePage() {
   const [messages, setMessages] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
@@ -43,11 +48,20 @@ export default function IntakePage() {
   const [sessionId, setSessionId] = useState("");
   const [profile, setProfile] = useState(null);
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+    return window.innerWidth >= 900;
+  });
+  const [isProfilePanelOpen, setIsProfilePanelOpen] = useState(false);
+  const [welcomeNotice, setWelcomeNotice] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
 
   const tailRef = useRef(null);
+  const welcomeTimeoutRef = useRef(null);
+  const lastWelcomedClientCodeRef = useRef("");
 
   function pushBotMessage(text) {
     setMessages((prev) => [...prev, makeMessage("bot", text)]);
@@ -99,7 +113,7 @@ export default function IntakePage() {
   }
 
   async function startNewChat() {
-    setIsSidebarOpen(false);
+    setIsProfilePanelOpen(false);
     setInputValue("");
     setIsBusy(true);
     try {
@@ -163,24 +177,97 @@ export default function IntakePage() {
     setNotificationsEnabled((prev) => !prev);
   }
 
+  async function handleLogout() {
+    if (!profile || isBusy) {
+      return;
+    }
+
+    setIsProfilePanelOpen(false);
+    setWelcomeNotice("");
+    setIsBusy(true);
+    try {
+      const response = await sendChatMessage({
+        session_id: sessionId || null,
+        message: "",
+        reset: true,
+      });
+      lastWelcomedClientCodeRef.current = "";
+      hydrateFromResponse(response, { resetMessages: true });
+    } catch {
+      lastWelcomedClientCodeRef.current = "";
+      setProfile(null);
+      setPhase("await_client_code");
+      setSuggestions([]);
+      setMessages([
+        makeMessage(
+          "bot",
+          "You have been logged out. Let’s get you into your workspace. Enter your client code below."
+        ),
+      ]);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   useEffect(() => {
     initializeChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    const currentClientCode = String(profile?.client_code ?? "").trim().toUpperCase();
+    if (!currentClientCode || currentClientCode === lastWelcomedClientCodeRef.current) {
+      return;
+    }
+    lastWelcomedClientCodeRef.current = currentClientCode;
+    setWelcomeNotice(`Welcome, ${profile?.client_name ?? currentClientCode}. Your workspace is ready.`);
+    if (welcomeTimeoutRef.current) {
+      clearTimeout(welcomeTimeoutRef.current);
+    }
+    welcomeTimeoutRef.current = setTimeout(() => {
+      setWelcomeNotice("");
+      welcomeTimeoutRef.current = null;
+    }, 3500);
+    setIsSidebarOpen(true);
+  }, [profile?.client_code, profile?.client_name]);
+
+  useEffect(
+    () => () => {
+      if (welcomeTimeoutRef.current) {
+        clearTimeout(welcomeTimeoutRef.current);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (profile) {
+      return;
+    }
+    setIsProfilePanelOpen(false);
+  }, [profile]);
+
+  useEffect(() => {
     tailRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, suggestions, isBusy]);
 
   const userInitials = getUserInitials(profile);
+  const creditMenuEntries = Object.entries(profile?.credit_menu ?? {});
 
   return (
-    <section className="chatbot-page">
+    <section className={`chatbot-page ${isSidebarOpen ? "sidebar-open" : ""}`}>
       <button
         type="button"
         className={`sidebar-backdrop ${isSidebarOpen ? "show" : ""}`}
         onClick={() => setIsSidebarOpen(false)}
         aria-label="Close sidebar"
+      />
+
+      <button
+        type="button"
+        className={`profile-panel-backdrop ${isProfilePanelOpen ? "show" : ""}`}
+        onClick={() => setIsProfilePanelOpen(false)}
+        aria-label="Close profile panel"
       />
 
       <aside className={`chat-sidebar ${isSidebarOpen ? "open" : ""}`}>
@@ -221,15 +308,24 @@ export default function IntakePage() {
 
         <div className="sidebar-section">
           <h3>Profile</h3>
-          <div className="sidebar-profile">
+          <button
+            type="button"
+            className="sidebar-profile sidebar-profile-btn"
+            onClick={() => setIsProfilePanelOpen(true)}
+            disabled={!profile}
+            title={profile ? "View current profile" : "Verify client code to view profile"}
+          >
             <div className="sidebar-profile-avatar">
               {userInitials}
             </div>
             <div>
               <p>{profile?.client_name ?? "Guest User"}</p>
               <small>{profile?.client_code ?? "No client verified"}</small>
+              <small className="sidebar-profile-hint">
+                {profile ? "Tap to view profile" : "Enter client code to load profile"}
+              </small>
             </div>
-          </div>
+          </button>
         </div>
 
         <div className="sidebar-section">
@@ -252,7 +348,150 @@ export default function IntakePage() {
               <span>{currentTheme === "dark" ? "Dark Mode" : "Light Mode"}</span>
             </button>
           </div>
+          {profile && (
+            <button
+              type="button"
+              className="danger-btn sidebar-logout-btn"
+              onClick={handleLogout}
+              disabled={isBusy}
+            >
+              Logout
+            </button>
+          )}
         </div>
+      </aside>
+
+      <aside className={`profile-panel ${isProfilePanelOpen ? "open" : ""}`} aria-hidden={!isProfilePanelOpen}>
+        <div className="profile-panel-head">
+          <div>
+            <p className="chatbot-tag">Workspace Profile</p>
+            <h3>{profile?.client_name ?? "Client Profile"}</h3>
+          </div>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => setIsProfilePanelOpen(false)}
+            aria-label="Close profile panel"
+          >
+            Close
+          </button>
+        </div>
+
+        {!profile && (
+          <p className="muted-text">Enter your client code in chat to load your profile details.</p>
+        )}
+
+        {profile && (
+          <div className="profile-panel-body">
+            <p className="profile-readonly-note">
+              Profile updates are read-only here. Chat with BiaBot to request profile changes.
+            </p>
+
+            <div className="profile-meta-grid">
+              <div className="profile-meta-item">
+                <p className="profile-meta-label">Client Name</p>
+                <p className="profile-meta-value">{displayText(profile.client_name)}</p>
+              </div>
+              <div className="profile-meta-item">
+                <p className="profile-meta-label">Client Code</p>
+                <p className="profile-meta-value">{displayText(profile.client_code)}</p>
+              </div>
+              <div className="profile-meta-item">
+                <p className="profile-meta-label">Subscription Tier</p>
+                <p className="profile-meta-value">{displayText(profile.subscription_tier)}</p>
+              </div>
+              <div className="profile-meta-item">
+                <p className="profile-meta-label">Preferred Tone</p>
+                <p className="profile-meta-value">{displayText(profile.preferred_tone)}</p>
+              </div>
+              <div className="profile-meta-item">
+                <p className="profile-meta-label">Default Approver</p>
+                <p className="profile-meta-value">{displayText(profile.default_approver)}</p>
+              </div>
+              <div className="profile-meta-item">
+                <p className="profile-meta-label">Custom Service Options</p>
+                <p className="profile-meta-value">
+                  {profile.service_options?.length
+                    ? `${profile.service_options.length} configured`
+                    : "Using global service options"}
+                </p>
+              </div>
+            </div>
+
+            <div className="profile-block">
+              <h4>Brand Voice Rules</h4>
+              <p>{displayText(profile.brand_voice_rules)}</p>
+            </div>
+
+            <div className="profile-block">
+              <h4>Required Disclaimers</h4>
+              <p>{displayText(profile.required_disclaimers)}</p>
+            </div>
+
+            <div className="profile-block">
+              <h4>Turnaround Rules (Optional)</h4>
+              <p>{displayText(profile.turnaround_rules)}</p>
+            </div>
+
+            <div className="profile-block">
+              <h4>Compliance Notes (Optional)</h4>
+              <p>{displayText(profile.compliance_notes)}</p>
+            </div>
+
+            <div className="profile-block">
+              <h4>Words To Avoid</h4>
+              <div className="profile-tag-list">
+                {(profile.words_to_avoid ?? []).map((item, index) => (
+                  <span key={`avoid-${item}-${index}`} className="profile-tag">
+                    {item}
+                  </span>
+                ))}
+                {(profile.words_to_avoid ?? []).length === 0 && <span className="muted-text">None configured.</span>}
+              </div>
+            </div>
+
+            <div className="profile-block">
+              <h4>Common Audiences</h4>
+              <div className="profile-tag-list">
+                {(profile.common_audiences ?? []).map((item, index) => (
+                  <span key={`audience-${item}-${index}`} className="profile-tag">
+                    {item}
+                  </span>
+                ))}
+                {(profile.common_audiences ?? []).length === 0 && (
+                  <span className="muted-text">None configured.</span>
+                )}
+              </div>
+            </div>
+
+            <div className="profile-block">
+              <h4>Credit Menu</h4>
+              <div className="table-scroll">
+                <table className="profile-credit-table">
+                  <thead>
+                    <tr>
+                      <th>Service Key</th>
+                      <th>Credits</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creditMenuEntries.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="empty-table-cell">No credit menu items found.</td>
+                      </tr>
+                    )}
+                    {creditMenuEntries.map(([serviceKey, credits]) => (
+                      <tr key={serviceKey}>
+                        <td>{serviceKey}</td>
+                        <td>{credits}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </aside>
 
       <div className="chat-main">
@@ -262,7 +501,8 @@ export default function IntakePage() {
               type="button"
               className="hamburger-btn"
               onClick={() => setIsSidebarOpen((prev) => !prev)}
-              aria-label="Open sidebar"
+              aria-label={isSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              title={isSidebarOpen ? "Hide sidebar" : "Show sidebar"}
             >
               <span />
               <span />
@@ -318,12 +558,20 @@ export default function IntakePage() {
                 </svg>
               )}
             </button>
-            <div className="client-badge">
+            <button
+              type="button"
+              className="client-badge client-badge-btn"
+              onClick={() => setIsProfilePanelOpen(true)}
+              disabled={!profile}
+              title={profile ? "View client profile" : "Verify client code first"}
+            >
               <span>Client</span>
               <strong>{profile?.client_code ?? "Not verified"}</strong>
-            </div>
+            </button>
           </div>
         </div>
+
+        {welcomeNotice && <div className="status-banner welcome-popup">{welcomeNotice}</div>}
 
         <div className="chat-window">
           {messages.length === 0 && !isBusy && (
