@@ -14,8 +14,9 @@ export function clientHeaders(token) {
   };
 }
 
-export function adminHeaders(adminKey) {
+export function adminHeaders(adminPassword) {
   return {
-    "x-admin-key": adminKey,
+    "x-admin-password": adminPassword,
+    "x-admin-key": adminPassword,
   };
 }

@@ -54,10 +54,24 @@ async def get_client_context(
     }
 
 
-async def require_admin(x_admin_key: str | None = Header(default=None)) -> None:
-    settings = get_settings()
-    if not x_admin_key or x_admin_key != settings.admin_api_key:
+async def require_admin(
+    x_admin_password: str | None = Header(default=None),
+    x_admin_key: str | None = Header(default=None),
+) -> None:
+    candidate = x_admin_password or x_admin_key
+    if not is_valid_admin_secret(candidate):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin key",
+            detail="Invalid admin password",
         )
+
+
+def get_admin_secret() -> str:
+    settings = get_settings()
+    return settings.admin_password or settings.admin_api_key
+
+
+def is_valid_admin_secret(candidate: str | None) -> bool:
+    if not candidate:
+        return False
+    return candidate == get_admin_secret()

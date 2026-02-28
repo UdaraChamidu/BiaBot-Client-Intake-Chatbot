@@ -31,7 +31,7 @@ uvicorn app.main:app --reload --port 8000
 - `USE_IN_MEMORY_STORE=true` lets you run immediately with a seeded client (`READYONE01`).
 - Set `USE_IN_MEMORY_STORE=false` and provide Supabase credentials to use real Supabase tables.
 - `MONDAY_MOCK_MODE=true` returns mock item IDs for local development.
-- Use `POST /api/v1/admin/monday/verify` (admin key required) to validate a Monday token/board pair before live submissions.
+- Use `POST /api/v1/admin/monday/verify` (admin password required) to validate a Monday token/board pair before live submissions.
 - OpenAI is the only supported LLM backend in this build:
   - Set `OPENAI_API_KEY`
   - Optional: set `OPENAI_MODEL` (default `gpt-4.1-nano`)

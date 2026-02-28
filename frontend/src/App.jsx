@@ -6,10 +6,12 @@ import AdminPage from "./pages/AdminPage";
 export default function App() {
   const location = useLocation();
   const isIntakeRoute = location.pathname === "/";
+  const isAdminRoute = location.pathname === "/admin";
+  const showHeader = !isIntakeRoute && !isAdminRoute;
 
   return (
-    <div className={`app-shell ${isIntakeRoute ? "intake-shell" : ""}`}>
-      {!isIntakeRoute && (
+    <div className={`app-shell ${isIntakeRoute ? "intake-shell" : ""} ${isAdminRoute ? "admin-shell" : ""}`}>
+      {showHeader && (
         <header className="app-header">
           <div className="brand">
             <p className="eyebrow">Bianomics</p>
@@ -33,7 +35,7 @@ export default function App() {
         </header>
       )}
 
-      <main className={`page-wrap ${isIntakeRoute ? "intake-wrap" : ""}`}>
+      <main className={`page-wrap ${isIntakeRoute ? "intake-wrap" : ""} ${isAdminRoute ? "admin-wrap" : ""}`}>
         <Routes>
           <Route path="/" element={<IntakePage />} />
           <Route path="/admin" element={<AdminPage />} />

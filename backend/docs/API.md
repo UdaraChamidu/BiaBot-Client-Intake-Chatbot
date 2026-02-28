@@ -71,7 +71,16 @@ Base URL (local): `http://localhost:8000/api/v1`
 
 ## Admin
 
-All admin routes require header `x-admin-key`.
+Admin password verification endpoint:
+- `POST /admin/auth`
+  - Body:
+    ```json
+    {
+      "password": "dev-admin-key"
+    }
+    ```
+
+All protected admin routes require header `x-admin-password` (or legacy `x-admin-key`).
 
 - `GET /admin/client-profiles`
 - `POST /admin/client-profiles`

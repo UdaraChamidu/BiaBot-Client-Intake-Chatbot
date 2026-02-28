@@ -142,6 +142,14 @@ class MondayCredentialCheckResponse(BaseModel):
     error: str | None = None
 
 
+class AdminAuthRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+
+
+class AdminAuthResponse(BaseModel):
+    ok: bool
+
+
 class ServiceOptionsUpdate(BaseModel):
     options: list[str]
 

@@ -39,7 +39,7 @@ npm run dev
 ## Default local credentials
 
 - Client code: `READYONE01`
-- Admin key: `dev-admin-key` (from backend `.env`)
+- Admin password: `dev-admin-key` (from backend `.env`, via `ADMIN_PASSWORD` or `ADMIN_API_KEY`)
 
 ## Next configuration step after local run
 

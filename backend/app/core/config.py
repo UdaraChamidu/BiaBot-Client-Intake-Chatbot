@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-jwt-secret-change-this-32-bytes-minimum"
     jwt_algorithm: str = "HS256"
     jwt_exp_minutes: int = 480
+    admin_password: str | None = None
     admin_api_key: str = "dev-admin-key"
 
     monday_api_url: str = "https://api.monday.com/v2"

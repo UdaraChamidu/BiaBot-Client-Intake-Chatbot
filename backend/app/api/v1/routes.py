@@ -5,8 +5,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.core.rate_limit import rate_limiter
-from app.core.security import create_client_token, get_client_context, require_admin
+from app.core.security import (
+    create_client_token,
+    get_client_context,
+    is_valid_admin_secret,
+    require_admin,
+)
 from app.models.schemas import (
+    AdminAuthRequest,
+    AdminAuthResponse,
     ChatMessageRequest,
     ChatMessageResponse,
     ClientCodeRequest,
@@ -174,6 +181,13 @@ def submit_intake(
     )
 
     return IntakeSubmitResponse(request_id=str(log["id"]), summary=summary, monday=monday_result)
+
+
+@router.post("/admin/auth", response_model=AdminAuthResponse, tags=["admin"])
+def admin_auth(payload: AdminAuthRequest) -> AdminAuthResponse:
+    if not is_valid_admin_secret(payload.password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin password")
+    return AdminAuthResponse(ok=True)
 
 
 @router.get("/admin/client-profiles", response_model=list[ClientProfile], tags=["admin"])

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import { sendChatMessage } from "../services/intakeService";
+import { getStoredTheme, toggleTheme } from "../utils/theme";
 
 const BOT_AVATAR_URL = "/avatar.png";
 
@@ -20,7 +21,17 @@ function composerPlaceholder(phase) {
   if (phase === "await_confirmation") {
     return "Confirm submission or request a restart";
   }
-  return "Type your message";
+  return "Type your message...";
+}
+
+function getUserInitials(profile) {
+  const name = profile?.client_name;
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name[0].toUpperCase();
 }
 
 export default function IntakePage() {
@@ -34,7 +45,7 @@ export default function IntakePage() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [lightMode, setLightMode] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
 
   const tailRef = useRef(null);
 
@@ -143,6 +154,11 @@ export default function IntakePage() {
     await submitMessage(option);
   }
 
+  function handleThemeToggle() {
+    const next = toggleTheme();
+    setCurrentTheme(next);
+  }
+
   useEffect(() => {
     initializeChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,8 +168,10 @@ export default function IntakePage() {
     tailRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, suggestions, isBusy]);
 
+  const userInitials = getUserInitials(profile);
+
   return (
-    <section className={`chatbot-page ${lightMode ? "light-mode" : ""}`}>
+    <section className="chatbot-page">
       <button
         type="button"
         className={`sidebar-backdrop ${isSidebarOpen ? "show" : ""}`}
@@ -165,7 +183,7 @@ export default function IntakePage() {
         <div className="sidebar-head">
           <img src={BOT_AVATAR_URL} alt="biaBot avatar" />
           <div>
-            <p>biaBot</p>
+            <p>BiaBot</p>
             <small>AI Intake Assistant</small>
           </div>
         </div>
@@ -175,7 +193,7 @@ export default function IntakePage() {
         </p>
 
         <button type="button" className="primary-btn sidebar-action" onClick={startNewChat}>
-          New Chat
+          + New Chat
         </button>
 
         <div className="sidebar-section">
@@ -200,7 +218,9 @@ export default function IntakePage() {
         <div className="sidebar-section">
           <h3>Profile</h3>
           <div className="sidebar-profile">
-            <img src={BOT_AVATAR_URL} alt="profile" />
+            <div className="sidebar-profile-avatar">
+              {userInitials}
+            </div>
             <div>
               <p>{profile?.client_name ?? "Guest User"}</p>
               <small>{profile?.client_code ?? "No client verified"}</small>
@@ -216,24 +236,18 @@ export default function IntakePage() {
               className="icon-toggle"
               onClick={() => setNotificationsEnabled((prev) => !prev)}
             >
-              <span className="icon-mark">N</span>
-              <span>{notificationsEnabled ? "Notifications On" : "Notifications Off"}</span>
+              <span className="icon-mark">{notificationsEnabled ? "ON" : "OFF"}</span>
+              <span>Notifications</span>
             </button>
             <button
               type="button"
               className="icon-toggle"
-              onClick={() => setLightMode((prev) => !prev)}
+              onClick={handleThemeToggle}
             >
-              <span className="icon-mark">T</span>
-              <span>{lightMode ? "Dark Theme" : "Light Theme"}</span>
+              <span className="icon-mark">{currentTheme === "dark" ? "D" : "L"}</span>
+              <span>{currentTheme === "dark" ? "Dark Mode" : "Light Mode"}</span>
             </button>
           </div>
-        </div>
-
-        <div className="sidebar-section">
-          <h3>Session</h3>
-          <p className="sidebar-description">Current phase: {phase}</p>
-          <p className="sidebar-description">Session ID: {sessionId || "Not initialized"}</p>
         </div>
       </aside>
 
@@ -251,23 +265,49 @@ export default function IntakePage() {
               <span />
             </button>
             <div className="chat-top-titles">
-              <p className="chatbot-tag">biaBot</p>
-              <h2>AI Conversational Intake</h2>
+              <div className="topbar-brand">
+                <img src={BOT_AVATAR_URL} alt="biaBot" className="topbar-avatar" />
+                <div>
+                  <p className="chatbot-tag">BiaBot</p>
+                  <h2>AI Conversational Intake</h2>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="client-badge">
-            <span>Client</span>
-            <strong>{profile?.client_code ?? "Not verified"}</strong>
+          <div className="chat-topbar-right">
+            <button
+              type="button"
+              className="theme-toggle-btn"
+              onClick={handleThemeToggle}
+              aria-label="Toggle theme"
+              title={currentTheme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {currentTheme === "dark" ? "Light" : "Dark"}
+            </button>
+            <div className="client-badge">
+              <span>Client</span>
+              <strong>{profile?.client_code ?? "Not verified"}</strong>
+            </div>
           </div>
         </div>
 
         <div className="chat-window">
+          {messages.length === 0 && !isBusy && (
+            <div className="chat-empty-state">
+              <img src={BOT_AVATAR_URL} alt="biaBot" className="empty-state-avatar" />
+              <h3>Welcome to BiaBot</h3>
+              <p>Your AI-powered intake assistant. Start by sharing your client code.</p>
+            </div>
+          )}
+
           {messages.map((message) => (
             <div key={message.id} className={`message-row ${message.role}`}>
               <div className={`avatar ${message.role}`}>
-                {message.role === "bot" ? <img src={BOT_AVATAR_URL} alt="biaBot avatar" /> : "u"}
+                {message.role === "bot" ? <img src={BOT_AVATAR_URL} alt="biaBot avatar" /> : userInitials}
               </div>
-              <div className={`bubble ${message.role}`}>{message.text}</div>
+              <div className={`bubble ${message.role}`}>
+                <div className="bubble-content">{message.text}</div>
+              </div>
             </div>
           ))}
 
@@ -309,8 +349,12 @@ export default function IntakePage() {
             placeholder={composerPlaceholder(phase)}
             disabled={isBusy}
           />
-          <button type="submit" className="primary-btn" disabled={isBusy || !inputValue.trim()}>
-            Send
+          <button type="submit" className="send-btn" disabled={isBusy || !inputValue.trim()}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+            <span>Send</span>
           </button>
         </form>
       </div>

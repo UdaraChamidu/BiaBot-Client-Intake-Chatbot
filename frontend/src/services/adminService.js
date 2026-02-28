@@ -1,40 +1,46 @@
 import { adminHeaders, apiClient } from "./apiClient";
 
-export async function getClientProfiles(adminKey) {
+export async function verifyAdminPassword(password) {
+  const { data } = await apiClient.post("/admin/auth", { password });
+  return data;
+}
+
+export async function getClientProfiles(adminPassword) {
   const { data } = await apiClient.get("/admin/client-profiles", {
-    headers: adminHeaders(adminKey),
+    headers: adminHeaders(adminPassword),
   });
   return data;
 }
 
-export async function upsertClientProfile(adminKey, profile) {
+export async function upsertClientProfile(adminPassword, profile) {
   const { data } = await apiClient.post("/admin/client-profiles", profile, {
-    headers: adminHeaders(adminKey),
+    headers: adminHeaders(adminPassword),
   });
   return data;
 }
 
-export async function getServiceOptions(adminKey) {
+export async function getServiceOptions(adminPassword) {
   const { data } = await apiClient.get("/admin/service-options", {
-    headers: adminHeaders(adminKey),
+    headers: adminHeaders(adminPassword),
   });
   return data;
 }
 
-export async function updateServiceOptions(adminKey, options) {
+export async function updateServiceOptions(adminPassword, options) {
   const { data } = await apiClient.put(
     "/admin/service-options",
     { options },
     {
-      headers: adminHeaders(adminKey),
+      headers: adminHeaders(adminPassword),
     }
   );
   return data;
 }
 
-export async function getRequestLogs(adminKey) {
+export async function getRequestLogs(adminPassword, limit = 100) {
   const { data } = await apiClient.get("/admin/request-logs", {
-    headers: adminHeaders(adminKey),
+    headers: adminHeaders(adminPassword),
+    params: { limit },
   });
   return data;
 }

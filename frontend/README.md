@@ -28,6 +28,8 @@ npm run dev
 - Chat-based mission summary preview and submit confirmation
 - Submit request to backend/Monday mock
 - Basic admin page for:
-  - service options
-  - client profiles (JSON upsert)
+  - password-gated admin access
+  - add/edit client profiles
+  - credit menu editing per client
+  - global service option management
   - request log viewing
