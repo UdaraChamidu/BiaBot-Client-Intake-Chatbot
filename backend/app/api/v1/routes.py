@@ -286,7 +286,10 @@ def admin_get_notifications(
     limit: int = Query(default=100, ge=1, le=500),
     _: None = Depends(require_admin),
 ) -> list[AdminNotificationRecord]:
-    rows = store.list_admin_notifications(limit=limit)
+    try:
+        rows = store.list_admin_notifications(limit=limit)
+    except Exception:
+        return []
     return [AdminNotificationRecord.model_validate(row) for row in rows]
 
 
@@ -299,7 +302,13 @@ def admin_mark_notification_read(
     notification_id: str,
     _: None = Depends(require_admin),
 ) -> AdminNotificationRecord:
-    row = store.mark_admin_notification_read(notification_id)
+    try:
+        row = store.mark_admin_notification_read(notification_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notifications are unavailable. Apply the latest database schema and restart backend.",
+        ) from None
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     return AdminNotificationRecord.model_validate(row)
@@ -313,7 +322,13 @@ def admin_mark_notification_read(
 def admin_mark_all_notifications_read(
     _: None = Depends(require_admin),
 ) -> NotificationBulkActionResponse:
-    affected = store.mark_all_admin_notifications_read()
+    try:
+        affected = store.mark_all_admin_notifications_read()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notifications are unavailable. Apply the latest database schema and restart backend.",
+        ) from None
     return NotificationBulkActionResponse(ok=True, affected=affected)
 
 
@@ -326,7 +341,13 @@ def admin_delete_notification(
     notification_id: str,
     _: None = Depends(require_admin),
 ) -> NotificationBulkActionResponse:
-    deleted = store.delete_admin_notification(notification_id)
+    try:
+        deleted = store.delete_admin_notification(notification_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notifications are unavailable. Apply the latest database schema and restart backend.",
+        ) from None
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     return NotificationBulkActionResponse(ok=True, affected=1)

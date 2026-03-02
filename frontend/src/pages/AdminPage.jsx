@@ -19,6 +19,7 @@ import { getStoredTheme, toggleTheme } from "../utils/theme";
 const NEW_PROFILE_ID = "__new__";
 const ADMIN_SESSION_PASSWORD_KEY = "admin_session_password";
 const ADMIN_PERSIST_PASSWORD_KEY = "admin_persist_password";
+const ADMIN_NOTIFICATIONS_AVAILABLE_KEY = "admin_notifications_api_available";
 
 const PROFILE_PLACEHOLDERS = {
   client_name: "ReadyOne Industries",
@@ -325,7 +326,9 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [notifications, setNotifications] = useState([]);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
-  const [notificationsApiAvailable, setNotificationsApiAvailable] = useState(true);
+  const [notificationsApiAvailable, setNotificationsApiAvailable] = useState(() =>
+    readBooleanPref(ADMIN_NOTIFICATIONS_AVAILABLE_KEY, true)
+  );
   const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
   const [dashboardProfiles, setDashboardProfiles] = useState([]);
   const [dashboardLogs, setDashboardLogs] = useState([]);
@@ -509,10 +512,13 @@ export default function AdminPage() {
     setCurrentTheme(next);
   }
 
-  function toggleNotificationPanel() {
+  async function toggleNotificationPanel() {
     if (!notificationsApiAvailable) {
-      setNotice("Notifications are unavailable on this backend version. Restart backend to enable them.");
-      return;
+      const restored = await loadNotifications(adminPassword, 100, true);
+      if (!restored) {
+        setNotice("Notifications are unavailable. Apply latest DB schema and restart backend.");
+        return;
+      }
     }
     setIsNotificationPanelOpen((prev) => !prev);
   }
@@ -524,21 +530,27 @@ export default function AdminPage() {
     window.localStorage.setItem(key, value);
   }
 
+  function setNotificationsAvailability(nextAvailable) {
+    setNotificationsApiAvailable(nextAvailable);
+    saveAdminSetting(ADMIN_NOTIFICATIONS_AVAILABLE_KEY, nextAvailable ? "1" : "0");
+  }
+
   async function loadNotifications(password, limit = 100, force = false) {
     if (!password || (!notificationsApiAvailable && !force)) {
-      return;
+      return false;
     }
     try {
       const rows = await getAdminNotifications(password, limit);
       setNotifications(rows);
-      setNotificationsApiAvailable(true);
+      setNotificationsAvailability(true);
+      return true;
     } catch (requestError) {
       if (Number(requestError?.response?.status) === 404) {
-        setNotificationsApiAvailable(false);
+        setNotificationsAvailability(false);
         setNotifications([]);
         setIsNotificationPanelOpen(false);
-        setNotice("Notifications are unavailable on this backend version. Restart backend to enable them.");
-        return;
+        setNotice("Notifications are unavailable. Apply latest DB schema and restart backend.");
+        return false;
       }
       throw requestError;
     }
@@ -650,7 +662,9 @@ export default function AdminPage() {
       const nextLogs = await getRequestLogs(adminPassword, nextLimit);
       setLogs(nextLogs);
       await refreshDashboardSnapshot(adminPassword);
-      await loadNotifications(adminPassword, 100);
+      if (notificationsApiAvailable) {
+        await loadNotifications(adminPassword, 100);
+      }
     }
     setNotice("Settings updated.");
   }
@@ -672,13 +686,14 @@ export default function AdminPage() {
       setIsAuthenticated(true);
       setStoredAdminPassword(password);
       setActiveTab("dashboard");
-      setNotificationsApiAvailable(true);
       const savedDefaultLimit = readNumberPref("admin_default_log_limit", 100);
       setSettingsLogLimit(String(savedDefaultLimit));
       setLogLimit(savedDefaultLimit);
       await loadAdminData(password);
       await refreshDashboardSnapshot(password);
-      await loadNotifications(password, 100);
+      if (notificationsApiAvailable) {
+        await loadNotifications(password, 100);
+      }
       setNotice("Admin access granted.");
     } catch (requestError) {
       setError(toErrorText(requestError, "Unable to authenticate admin password."));
@@ -697,7 +712,9 @@ export default function AdminPage() {
     try {
       await loadAdminData(adminPassword);
       await refreshDashboardSnapshot(adminPassword);
-      await loadNotifications(adminPassword, 100);
+      if (notificationsApiAvailable) {
+        await loadNotifications(adminPassword, 100);
+      }
       setNotice("Admin data refreshed.");
     } catch (requestError) {
       setError(toErrorText(requestError, "Unable to refresh admin data."));
@@ -940,7 +957,6 @@ export default function AdminPage() {
     setSettingsLogLimit("100");
     setNotifications([]);
     setIsNotificationPanelOpen(false);
-    setNotificationsApiAvailable(true);
     setError("");
     setNotice("");
   }
@@ -1063,17 +1079,16 @@ export default function AdminPage() {
         setIsAuthenticated(true);
         setStoredAdminPassword(savedPassword);
         setActiveTab("dashboard");
-        setNotificationsApiAvailable(true);
 
         const savedDefaultLimit = readNumberPref("admin_default_log_limit", 100);
         setSettingsLogLimit(String(savedDefaultLimit));
         setLogLimit(savedDefaultLimit);
 
-        await Promise.allSettled([
-          loadAdminData(savedPassword),
-          refreshDashboardSnapshot(savedPassword),
-          loadNotifications(savedPassword, 100),
-        ]);
+        const restoreTasks = [loadAdminData(savedPassword), refreshDashboardSnapshot(savedPassword)];
+        if (notificationsApiAvailable) {
+          restoreTasks.push(loadNotifications(savedPassword, 100));
+        }
+        await Promise.allSettled(restoreTasks);
         if (!cancelled) {
           setNotice("Admin session restored.");
         }
