@@ -18,6 +18,7 @@ import { getStoredTheme, toggleTheme } from "../utils/theme";
 
 const NEW_PROFILE_ID = "__new__";
 const ADMIN_SESSION_PASSWORD_KEY = "admin_session_password";
+const ADMIN_PERSIST_PASSWORD_KEY = "admin_persist_password";
 
 const PROFILE_PLACEHOLDERS = {
   client_name: "ReadyOne Industries",
@@ -268,6 +269,38 @@ function readNumberPref(key, fallback) {
     return fallback;
   }
   return parsed;
+}
+
+function setStoredAdminPassword(password) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.sessionStorage.setItem(ADMIN_SESSION_PASSWORD_KEY, password);
+  window.localStorage.setItem(ADMIN_PERSIST_PASSWORD_KEY, password);
+}
+
+function getStoredAdminPassword() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const fromSession = String(
+    window.sessionStorage.getItem(ADMIN_SESSION_PASSWORD_KEY) ?? ""
+  ).trim();
+  if (fromSession) {
+    return fromSession;
+  }
+  const fromLocal = String(
+    window.localStorage.getItem(ADMIN_PERSIST_PASSWORD_KEY) ?? ""
+  ).trim();
+  return fromLocal;
+}
+
+function clearStoredAdminPassword() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.sessionStorage.removeItem(ADMIN_SESSION_PASSWORD_KEY);
+  window.localStorage.removeItem(ADMIN_PERSIST_PASSWORD_KEY);
 }
 
 export default function AdminPage() {
@@ -637,9 +670,7 @@ export default function AdminPage() {
       await verifyAdminPassword(password);
       setAdminPassword(password);
       setIsAuthenticated(true);
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(ADMIN_SESSION_PASSWORD_KEY, password);
-      }
+      setStoredAdminPassword(password);
       setActiveTab("dashboard");
       setNotificationsApiAvailable(true);
       const savedDefaultLimit = readNumberPref("admin_default_log_limit", 100);
@@ -894,9 +925,7 @@ export default function AdminPage() {
   }
 
   function logoutAdmin() {
-    if (typeof window !== "undefined") {
-      window.sessionStorage.removeItem(ADMIN_SESSION_PASSWORD_KEY);
-    }
+    clearStoredAdminPassword();
     setAdminPassword("");
     setAdminPasswordInput("");
     setIsAuthenticated(false);
@@ -1014,14 +1043,17 @@ export default function AdminPage() {
         if (typeof window === "undefined") {
           return;
         }
-        const savedPassword = String(
-          window.sessionStorage.getItem(ADMIN_SESSION_PASSWORD_KEY) ?? ""
-        ).trim();
+        const savedPassword = getStoredAdminPassword();
         if (!savedPassword) {
           return;
         }
 
-        await verifyAdminPassword(savedPassword);
+        try {
+          await verifyAdminPassword(savedPassword);
+        } catch {
+          clearStoredAdminPassword();
+          return;
+        }
         if (cancelled) {
           return;
         }
@@ -1029,6 +1061,7 @@ export default function AdminPage() {
         setAdminPassword(savedPassword);
         setAdminPasswordInput("");
         setIsAuthenticated(true);
+        setStoredAdminPassword(savedPassword);
         setActiveTab("dashboard");
         setNotificationsApiAvailable(true);
 
@@ -1036,16 +1069,16 @@ export default function AdminPage() {
         setSettingsLogLimit(String(savedDefaultLimit));
         setLogLimit(savedDefaultLimit);
 
-        await loadAdminData(savedPassword);
-        await refreshDashboardSnapshot(savedPassword);
-        await loadNotifications(savedPassword, 100);
+        await Promise.allSettled([
+          loadAdminData(savedPassword),
+          refreshDashboardSnapshot(savedPassword),
+          loadNotifications(savedPassword, 100),
+        ]);
         if (!cancelled) {
           setNotice("Admin session restored.");
         }
       } catch {
-        if (typeof window !== "undefined") {
-          window.sessionStorage.removeItem(ADMIN_SESSION_PASSWORD_KEY);
-        }
+        // Keep session when non-auth restore steps fail; retry paths can recover.
       } finally {
         if (!cancelled) {
           setIsSessionChecked(true);
@@ -1081,12 +1114,6 @@ export default function AdminPage() {
             end
           >
             Client Intake
-          </NavLink>
-          <NavLink
-            to="/admin"
-            className={({ isActive }) => (isActive ? "tab active" : "tab")}
-          >
-            Admin
           </NavLink>
         </nav>
         <div className="notification-popover-wrap">
@@ -1259,54 +1286,56 @@ export default function AdminPage() {
 
   return (
     <div className="admin-layout">
-      {adminTopbar}
+      <div className="admin-header-shell">
+        {adminTopbar}
 
-      <nav className="admin-tabs">
-        <button
-          type="button"
-          className={`admin-tab ${activeTab === "dashboard" ? "active" : ""}`}
-          onClick={() => setActiveTab("dashboard")}
-        >
-          Dashboard
-        </button>
-        <button
-          type="button"
-          className={`admin-tab ${activeTab === "profiles" ? "active" : ""}`}
-          onClick={() => setActiveTab("profiles")}
-        >
-          Client Profiles
-          {profiles.length > 0 && <span className="tab-badge">{profiles.length}</span>}
-        </button>
-        <button
-          type="button"
-          className={`admin-tab ${activeTab === "clients" ? "active" : ""}`}
-          onClick={() => setActiveTab("clients")}
-        >
-          Client Directory
-        </button>
-        <button
-          type="button"
-          className={`admin-tab ${activeTab === "services" ? "active" : ""}`}
-          onClick={() => setActiveTab("services")}
-        >
-          Services
-        </button>
-        <button
-          type="button"
-          className={`admin-tab ${activeTab === "logs" ? "active" : ""}`}
-          onClick={() => setActiveTab("logs")}
-        >
-          Request Logs
-          {logs.length > 0 && <span className="tab-badge">{logs.length}</span>}
-        </button>
-        <button
-          type="button"
-          className={`admin-tab ${activeTab === "settings" ? "active" : ""}`}
-          onClick={() => setActiveTab("settings")}
-        >
-          Settings
-        </button>
-      </nav>
+        <nav className="admin-tabs">
+          <button
+            type="button"
+            className={`admin-tab ${activeTab === "dashboard" ? "active" : ""}`}
+            onClick={() => setActiveTab("dashboard")}
+          >
+            Dashboard
+          </button>
+          <button
+            type="button"
+            className={`admin-tab ${activeTab === "profiles" ? "active" : ""}`}
+            onClick={() => setActiveTab("profiles")}
+          >
+            Client Profiles
+            {profiles.length > 0 && <span className="tab-badge">{profiles.length}</span>}
+          </button>
+          <button
+            type="button"
+            className={`admin-tab ${activeTab === "clients" ? "active" : ""}`}
+            onClick={() => setActiveTab("clients")}
+          >
+            Client Directory
+          </button>
+          <button
+            type="button"
+            className={`admin-tab ${activeTab === "services" ? "active" : ""}`}
+            onClick={() => setActiveTab("services")}
+          >
+            Services
+          </button>
+          <button
+            type="button"
+            className={`admin-tab ${activeTab === "logs" ? "active" : ""}`}
+            onClick={() => setActiveTab("logs")}
+          >
+            Request Logs
+            {logs.length > 0 && <span className="tab-badge">{logs.length}</span>}
+          </button>
+          <button
+            type="button"
+            className={`admin-tab ${activeTab === "settings" ? "active" : ""}`}
+            onClick={() => setActiveTab("settings")}
+          >
+            Settings
+          </button>
+        </nav>
+      </div>
 
       <div className="admin-tab-content">
         {activeTab === "dashboard" && (

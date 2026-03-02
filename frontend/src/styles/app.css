@@ -1606,15 +1606,27 @@ select:focus {
   width: min(1400px, calc(100vw - 48px));
   max-width: none;
   margin: 0 auto;
-  animation: fadeSlideUp 0.3s ease forwards;
+}
+
+.admin-header-shell {
+  position: sticky;
+  top: 10px;
+  z-index: 80;
+  display: grid;
+  gap: 10px;
 }
 
 /* Admin tabs */
 .admin-tabs {
   display: flex;
   gap: 4px;
-  border-bottom: 2px solid var(--line);
-  padding-bottom: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
 }
 
 .admin-tab {
@@ -2756,8 +2768,12 @@ tbody tr:hover {
     width: calc(100vw - 24px);
   }
 
+  .admin-header-shell {
+    top: 8px;
+    gap: 8px;
+  }
+
   .admin-tabs {
-    overflow-x: auto;
     gap: 2px;
   }
 

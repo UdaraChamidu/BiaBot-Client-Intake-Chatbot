@@ -325,13 +325,6 @@ export default function IntakePage() {
           <h3>Navigation</h3>
           <nav className="sidebar-icons">
             <NavLink
-              to="/"
-              className={({ isActive }) => (isActive ? "sidebar-link-btn active" : "sidebar-link-btn")}
-              end
-            >
-              Client Intake
-            </NavLink>
-            <NavLink
               to="/admin"
               className={({ isActive }) => (isActive ? "sidebar-link-btn active" : "sidebar-link-btn")}
             >
