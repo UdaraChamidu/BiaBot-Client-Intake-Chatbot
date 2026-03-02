@@ -1,11 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import {
+  deleteAdminNotification,
   deleteClientProfile,
+  getAdminNotifications,
   getClientProfiles,
   getRequestLogs,
   getServiceOptions,
+  markAdminNotificationRead,
+  markAllAdminNotificationsRead,
   updateServiceOptions,
   upsertClientProfile,
   verifyAdminPassword,
@@ -13,6 +17,7 @@ import {
 import { getStoredTheme, toggleTheme } from "../utils/theme";
 
 const NEW_PROFILE_ID = "__new__";
+const ADMIN_SESSION_PASSWORD_KEY = "admin_session_password";
 
 const PROFILE_PLACEHOLDERS = {
   client_name: "ReadyOne Industries",
@@ -118,6 +123,89 @@ function displayValue(value, fallback = "Not set") {
   return text || fallback;
 }
 
+function toErrorText(requestError, fallback) {
+  const detail = requestError?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        const location = Array.isArray(item?.loc) ? item.loc.join(".") : "request";
+        const message = String(item?.msg ?? "").trim();
+        return message ? `${location}: ${message}` : "";
+      })
+      .filter(Boolean);
+    if (messages.length > 0) {
+      return messages.join(" | ");
+    }
+  }
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+  const message = String(requestError?.message ?? "").trim();
+  return message || fallback;
+}
+
+function isLegacyStrictProfile422(requestError) {
+  const detail = requestError?.response?.data?.detail;
+  if (!Array.isArray(detail)) {
+    return false;
+  }
+  const fields = new Set(
+    detail
+      .map((item) => (Array.isArray(item?.loc) ? String(item.loc[1] ?? "") : ""))
+      .filter(Boolean)
+  );
+  return (
+    fields.has("brand_voice_rules") ||
+    fields.has("words_to_avoid") ||
+    fields.has("required_disclaimers") ||
+    fields.has("preferred_tone") ||
+    fields.has("common_audiences") ||
+    fields.has("default_approver") ||
+    fields.has("subscription_tier") ||
+    fields.has("credit_menu")
+  );
+}
+
+function withLegacyRequiredDefaults(payload) {
+  const normalized = { ...payload };
+  if (!String(normalized.brand_voice_rules ?? "").trim()) {
+    normalized.brand_voice_rules = "Not provided";
+  }
+  if (!Array.isArray(normalized.words_to_avoid) || normalized.words_to_avoid.length === 0) {
+    normalized.words_to_avoid = ["not specified"];
+  }
+  if (!String(normalized.required_disclaimers ?? "").trim()) {
+    normalized.required_disclaimers = "Not provided";
+  }
+  if (!String(normalized.preferred_tone ?? "").trim()) {
+    normalized.preferred_tone = "Not specified";
+  }
+  if (!Array.isArray(normalized.common_audiences) || normalized.common_audiences.length === 0) {
+    normalized.common_audiences = ["general audience"];
+  }
+  if (!String(normalized.default_approver ?? "").trim()) {
+    normalized.default_approver = "Not assigned";
+  }
+  if (!String(normalized.subscription_tier ?? "").trim()) {
+    normalized.subscription_tier = "Not specified";
+  }
+  if (
+    !normalized.credit_menu ||
+    typeof normalized.credit_menu !== "object" ||
+    Object.keys(normalized.credit_menu).length === 0
+  ) {
+    normalized.credit_menu = { general: 0 };
+  }
+  return normalized;
+}
+
 function clientInitials(name) {
   const text = String(name ?? "").trim();
   if (!text) {
@@ -130,10 +218,63 @@ function clientInitials(name) {
   return text.slice(0, 2).toUpperCase();
 }
 
+function toMs(value) {
+  const ms = Date.parse(String(value ?? ""));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function formatRelativeTime(value) {
+  const timestamp = toMs(value);
+  if (!timestamp) {
+    return "Unknown time";
+  }
+  const diffMs = Date.now() - timestamp;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) {
+    return "Just now";
+  }
+  if (diffMin < 60) {
+    return `${diffMin}m ago`;
+  }
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) {
+    return `${diffHr}h ago`;
+  }
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
+function readBooleanPref(key, fallback) {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  const raw = window.localStorage.getItem(key);
+  if (raw === "1") {
+    return true;
+  }
+  if (raw === "0") {
+    return false;
+  }
+  return fallback;
+}
+
+function readNumberPref(key, fallback) {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  const raw = window.localStorage.getItem(key);
+  const parsed = Number.parseInt(String(raw ?? ""), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
 export default function AdminPage() {
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isSessionChecked, setIsSessionChecked] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -148,9 +289,26 @@ export default function AdminPage() {
   const [clientDirectoryQuery, setClientDirectoryQuery] = useState("");
   const [logsQuery, setLogsQuery] = useState("");
 
-  const [activeTab, setActiveTab] = useState("profiles");
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [notifications, setNotifications] = useState([]);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [notificationsApiAvailable, setNotificationsApiAvailable] = useState(true);
   const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
+  const [dashboardProfiles, setDashboardProfiles] = useState([]);
+  const [dashboardLogs, setDashboardLogs] = useState([]);
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState("");
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(() =>
+    readBooleanPref("admin_auto_refresh_enabled", true)
+  );
+  const [dashboardPollSeconds, setDashboardPollSeconds] = useState(() =>
+    readNumberPref("admin_dashboard_poll_seconds", 10)
+  );
+  const [notificationPollSeconds, setNotificationPollSeconds] = useState(() =>
+    readNumberPref("admin_notification_poll_seconds", 8)
+  );
+  const [settingsLogLimit, setSettingsLogLimit] = useState("100");
+  const notificationPopoverRef = useRef(null);
+  const notificationButtonRef = useRef(null);
 
   const selectedProfileLabel = useMemo(() => {
     if (selectedClientCode === NEW_PROFILE_ID) {
@@ -218,13 +376,167 @@ export default function AdminPage() {
     });
   }, [logs, logsQuery]);
 
+  const unreadNotificationCount = useMemo(
+    () => notifications.filter((item) => !item.is_read).length,
+    [notifications]
+  );
+
+  const dashboardStats = useMemo(() => {
+    const metricProfiles = dashboardProfiles.length ? dashboardProfiles : profiles;
+    const metricLogs = dashboardLogs.length ? dashboardLogs : logs;
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+    let recentRequests7d = 0;
+    let mondayLinked = 0;
+    const activeClients30d = new Set();
+    const serviceCounts = new Map();
+    const tierCounts = new Map();
+
+    for (const profile of metricProfiles) {
+      const tier = String(profile.subscription_tier || "Unspecified").trim() || "Unspecified";
+      tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1);
+    }
+
+    for (const log of metricLogs) {
+      const createdAtMs = toMs(log.created_at);
+      if (createdAtMs && createdAtMs >= sevenDaysAgo) {
+        recentRequests7d += 1;
+      }
+      if (createdAtMs && createdAtMs >= thirtyDaysAgo && String(log.client_code ?? "").trim()) {
+        activeClients30d.add(String(log.client_code).trim().toUpperCase());
+      }
+      if (String(log.monday_item_id ?? "").trim()) {
+        mondayLinked += 1;
+      }
+      const service = String(log.service_type || "Unspecified").trim() || "Unspecified";
+      serviceCounts.set(service, (serviceCounts.get(service) ?? 0) + 1);
+    }
+
+    const topServices = [...serviceCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+
+    const tierDistribution = [...tierCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+
+    const completionFields = [
+      (profile) => Boolean(String(profile.brand_voice_rules ?? "").trim()),
+      (profile) => Boolean(String(profile.required_disclaimers ?? "").trim()),
+      (profile) => Boolean(String(profile.preferred_tone ?? "").trim()),
+      (profile) => Boolean(String(profile.default_approver ?? "").trim()),
+      (profile) => Boolean(String(profile.subscription_tier ?? "").trim()),
+      (profile) => (profile.words_to_avoid ?? []).length > 0,
+      (profile) => (profile.common_audiences ?? []).length > 0,
+      (profile) => Object.keys(profile.credit_menu ?? {}).length > 0,
+    ];
+
+    let completionPercent = 0;
+    if (profiles.length > 0) {
+      let achieved = 0;
+      for (const profile of profiles) {
+        for (const isFilled of completionFields) {
+          if (isFilled(profile)) {
+            achieved += 1;
+          }
+        }
+      }
+      completionPercent = Math.round((achieved / (profiles.length * completionFields.length)) * 100);
+    }
+
+    return {
+      totalClients: metricProfiles.length,
+      totalRequests: metricLogs.length,
+      recentRequests7d,
+      activeClients30d: activeClients30d.size,
+      mondayLinked,
+      mondayCoverage: metricLogs.length ? Math.round((mondayLinked / metricLogs.length) * 100) : 0,
+      profileCompleteness: completionPercent,
+      topServices,
+      tierDistribution,
+      latestLogs: metricLogs.slice(0, 6),
+    };
+  }, [profiles, logs, dashboardProfiles, dashboardLogs]);
+
   function handleThemeToggle() {
     const next = toggleTheme();
     setCurrentTheme(next);
   }
 
-  function handleNotificationsToggle() {
-    setNotificationsEnabled((prev) => !prev);
+  function toggleNotificationPanel() {
+    if (!notificationsApiAvailable) {
+      setNotice("Notifications are unavailable on this backend version. Restart backend to enable them.");
+      return;
+    }
+    setIsNotificationPanelOpen((prev) => !prev);
+  }
+
+  function saveAdminSetting(key, value) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(key, value);
+  }
+
+  async function loadNotifications(password, limit = 100, force = false) {
+    if (!password || (!notificationsApiAvailable && !force)) {
+      return;
+    }
+    try {
+      const rows = await getAdminNotifications(password, limit);
+      setNotifications(rows);
+      setNotificationsApiAvailable(true);
+    } catch (requestError) {
+      if (Number(requestError?.response?.status) === 404) {
+        setNotificationsApiAvailable(false);
+        setNotifications([]);
+        setIsNotificationPanelOpen(false);
+        setNotice("Notifications are unavailable on this backend version. Restart backend to enable them.");
+        return;
+      }
+      throw requestError;
+    }
+  }
+
+  async function handleMarkNotificationRead(notificationId) {
+    if (!adminPassword || !notificationId || !notificationsApiAvailable) {
+      return;
+    }
+    try {
+      const updated = await markAdminNotificationRead(adminPassword, notificationId);
+      setNotifications((prev) =>
+        prev.map((item) => (item.id === notificationId ? updated : item))
+      );
+    } catch (requestError) {
+      setError(toErrorText(requestError, "Unable to mark notification as read."));
+    }
+  }
+
+  async function handleMarkAllNotificationsRead() {
+    if (!adminPassword || !notificationsApiAvailable) {
+      return;
+    }
+    try {
+      await markAllAdminNotificationsRead(adminPassword);
+      setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
+    } catch (requestError) {
+      setError(toErrorText(requestError, "Unable to mark all notifications as read."));
+    }
+  }
+
+  async function handleDeleteNotification(notificationId) {
+    if (!adminPassword || !notificationId || !notificationsApiAvailable) {
+      return;
+    }
+    try {
+      await deleteAdminNotification(adminPassword, notificationId);
+      setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+    } catch (requestError) {
+      setError(toErrorText(requestError, "Unable to delete notification."));
+    }
   }
 
   function hydrateProfileForm(profile) {
@@ -269,6 +581,37 @@ export default function AdminPage() {
     setProfileSelection(desiredCode, nextProfiles);
   }
 
+  async function refreshDashboardSnapshot(password) {
+    if (!password) {
+      return;
+    }
+    const [nextProfilesRaw, nextLogs] = await Promise.all([
+      getClientProfiles(password),
+      getRequestLogs(password, 500),
+    ]);
+    setDashboardProfiles(sortProfiles(nextProfilesRaw));
+    setDashboardLogs(nextLogs);
+    setDashboardUpdatedAt(new Date().toISOString());
+  }
+
+  async function applySettingsChanges() {
+    const parsedLimit = Number.parseInt(settingsLogLimit, 10);
+    const nextLimit = Number.isInteger(parsedLimit) ? parsedLimit : logLimit;
+    setLogLimit(nextLimit);
+    saveAdminSetting("admin_auto_refresh_enabled", autoRefreshEnabled ? "1" : "0");
+    saveAdminSetting("admin_dashboard_poll_seconds", String(dashboardPollSeconds));
+    saveAdminSetting("admin_notification_poll_seconds", String(notificationPollSeconds));
+    saveAdminSetting("admin_default_log_limit", String(nextLimit));
+    if (adminPassword) {
+      await loadAdminData(adminPassword);
+      const nextLogs = await getRequestLogs(adminPassword, nextLimit);
+      setLogs(nextLogs);
+      await refreshDashboardSnapshot(adminPassword);
+      await loadNotifications(adminPassword, 100);
+    }
+    setNotice("Settings updated.");
+  }
+
   async function handleAdminLogin(event) {
     event.preventDefault();
     const password = adminPasswordInput.trim();
@@ -284,11 +627,20 @@ export default function AdminPage() {
       await verifyAdminPassword(password);
       setAdminPassword(password);
       setIsAuthenticated(true);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(ADMIN_SESSION_PASSWORD_KEY, password);
+      }
+      setActiveTab("dashboard");
+      setNotificationsApiAvailable(true);
+      const savedDefaultLimit = readNumberPref("admin_default_log_limit", 100);
+      setSettingsLogLimit(String(savedDefaultLimit));
+      setLogLimit(savedDefaultLimit);
       await loadAdminData(password);
+      await refreshDashboardSnapshot(password);
+      await loadNotifications(password, 100);
       setNotice("Admin access granted.");
     } catch (requestError) {
-      const detail = requestError?.response?.data?.detail;
-      setError(detail ?? "Unable to authenticate admin password.");
+      setError(toErrorText(requestError, "Unable to authenticate admin password."));
     } finally {
       setLoading(false);
     }
@@ -303,10 +655,11 @@ export default function AdminPage() {
     setNotice("");
     try {
       await loadAdminData(adminPassword);
+      await refreshDashboardSnapshot(adminPassword);
+      await loadNotifications(adminPassword, 100);
       setNotice("Admin data refreshed.");
     } catch (requestError) {
-      const detail = requestError?.response?.data?.detail;
-      setError(detail ?? "Unable to refresh admin data.");
+      setError(toErrorText(requestError, "Unable to refresh admin data."));
     } finally {
       setLoading(false);
     }
@@ -362,11 +715,6 @@ export default function AdminPage() {
     const requiredTextFields = [
       ["client_code", "Client code"],
       ["client_name", "Client name"],
-      ["brand_voice_rules", "Brand voice rules"],
-      ["required_disclaimers", "Required disclaimers"],
-      ["preferred_tone", "Preferred tone"],
-      ["default_approver", "Default approver"],
-      ["subscription_tier", "Subscription tier"],
     ];
 
     for (const [field, label] of requiredTextFields) {
@@ -374,13 +722,6 @@ export default function AdminPage() {
       if (!value) {
         return `${label} is required.`;
       }
-    }
-
-    if (!profileForm.words_to_avoid?.length) {
-      return "Words to avoid requires at least one item.";
-    }
-    if (!profileForm.common_audiences?.length) {
-      return "Common audiences requires at least one item.";
     }
 
     try {
@@ -416,8 +757,8 @@ export default function AdminPage() {
     const normalizedCommonAudiences = profileForm.common_audiences.map((item) => item.trim()).filter(Boolean);
     const normalizedServiceOptions = profileForm.service_options.map((item) => item.trim()).filter(Boolean);
 
-    if (!normalizedCode || !normalizedName || !normalizedVoiceRules) {
-      setError("Client code, client name, and brand voice rules are required.");
+    if (!normalizedCode || !normalizedName) {
+      setError("Client code and client name are required.");
       return;
     }
 
@@ -441,13 +782,29 @@ export default function AdminPage() {
         service_options: normalizedServiceOptions,
         credit_menu: buildCreditMenu(creditRows),
       };
-      const saved = await upsertClientProfile(adminPassword, payload);
-      await loadAdminData(adminPassword, saved.client_code);
-      setNotice(`Profile saved for ${saved.client_code}.`);
+      let saved;
+      try {
+        saved = await upsertClientProfile(adminPassword, payload);
+      } catch (requestError) {
+        if (!isLegacyStrictProfile422(requestError)) {
+          throw requestError;
+        }
+        saved = await upsertClientProfile(adminPassword, withLegacyRequiredDefaults(payload));
+      }
       setActiveTab("clients");
+      setSelectedClientCode(saved.client_code);
+      setNotice(`Profile saved for ${saved.client_code}.`);
+      try {
+        await loadAdminData(adminPassword, saved.client_code);
+      } catch {
+        const normalizedSaved = normalizeProfile(saved);
+        setProfiles((prev) => {
+          const withoutCurrent = prev.filter((row) => row.client_code !== normalizedSaved.client_code);
+          return sortProfiles([...withoutCurrent, normalizedSaved]);
+        });
+      }
     } catch (requestError) {
-      const detail = requestError?.response?.data?.detail;
-      setError(detail ?? requestError?.message ?? "Unable to save profile.");
+      setError(toErrorText(requestError, "Unable to save profile."));
     } finally {
       setLoading(false);
     }
@@ -477,8 +834,7 @@ export default function AdminPage() {
       await loadAdminData(adminPassword, nextCode);
       setNotice(`Client profile ${code} deleted.`);
     } catch (requestError) {
-      const detail = requestError?.response?.data?.detail;
-      setError(detail ?? "Unable to delete client profile.");
+      setError(toErrorText(requestError, "Unable to delete client profile."));
     } finally {
       setLoading(false);
     }
@@ -503,8 +859,7 @@ export default function AdminPage() {
       setServiceOptionsText(linesToText(updated));
       setNotice("Global service options updated.");
     } catch (requestError) {
-      const detail = requestError?.response?.data?.detail;
-      setError(detail ?? "Unable to save service options.");
+      setError(toErrorText(requestError, "Unable to save service options."));
     } finally {
       setLoading(false);
     }
@@ -522,24 +877,162 @@ export default function AdminPage() {
       setLogs(nextLogs);
       setNotice("Request logs refreshed.");
     } catch (requestError) {
-      const detail = requestError?.response?.data?.detail;
-      setError(detail ?? "Unable to load request logs.");
+      setError(toErrorText(requestError, "Unable to load request logs."));
     } finally {
       setLoading(false);
     }
   }
 
   function logoutAdmin() {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(ADMIN_SESSION_PASSWORD_KEY);
+    }
     setAdminPassword("");
     setAdminPasswordInput("");
     setIsAuthenticated(false);
     setProfiles([]);
     setLogs([]);
     setSelectedClientCode(NEW_PROFILE_ID);
+    setActiveTab("dashboard");
     hydrateProfileForm(EMPTY_PROFILE_TEMPLATE);
+    setDashboardProfiles([]);
+    setDashboardLogs([]);
+    setDashboardUpdatedAt("");
+    setSettingsLogLimit("100");
+    setNotifications([]);
+    setIsNotificationPanelOpen(false);
+    setNotificationsApiAvailable(true);
     setError("");
     setNotice("");
   }
+
+  useEffect(() => {
+    if (!isAuthenticated || !adminPassword || !notificationsApiAvailable) {
+      return;
+    }
+    if (!autoRefreshEnabled) {
+      return;
+    }
+
+    let cancelled = false;
+    const pollMs = activeTab === "dashboard" ? dashboardPollSeconds * 1000 : 30000;
+
+    const run = async () => {
+      try {
+        await refreshDashboardSnapshot(adminPassword);
+      } catch {
+        if (!cancelled && activeTab === "dashboard") {
+          setError("Dashboard refresh failed. Data may be stale.");
+        }
+      }
+    };
+
+    run();
+    const timer = setInterval(run, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isAuthenticated, adminPassword, activeTab, autoRefreshEnabled, dashboardPollSeconds]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !adminPassword || !notificationsApiAvailable) {
+      return;
+    }
+    if (!autoRefreshEnabled) {
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        await loadNotifications(adminPassword, 100);
+      } catch {
+        // Non-blocking; polling will retry.
+      }
+    };
+    run();
+    const timer = setInterval(run, notificationPollSeconds * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isAuthenticated, adminPassword, autoRefreshEnabled, notificationPollSeconds, notificationsApiAvailable]);
+
+  useEffect(() => {
+    if (!isNotificationPanelOpen) {
+      return;
+    }
+    const handleOutsideClick = (event) => {
+      const panelEl = notificationPopoverRef.current;
+      const buttonEl = notificationButtonRef.current;
+      const target = event.target;
+      if (panelEl && panelEl.contains(target)) {
+        return;
+      }
+      if (buttonEl && buttonEl.contains(target)) {
+        return;
+      }
+      setIsNotificationPanelOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [isNotificationPanelOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreAdminSession() {
+      try {
+        if (typeof window === "undefined") {
+          return;
+        }
+        const savedPassword = String(
+          window.sessionStorage.getItem(ADMIN_SESSION_PASSWORD_KEY) ?? ""
+        ).trim();
+        if (!savedPassword) {
+          return;
+        }
+
+        await verifyAdminPassword(savedPassword);
+        if (cancelled) {
+          return;
+        }
+
+        setAdminPassword(savedPassword);
+        setAdminPasswordInput("");
+        setIsAuthenticated(true);
+        setActiveTab("dashboard");
+        setNotificationsApiAvailable(true);
+
+        const savedDefaultLimit = readNumberPref("admin_default_log_limit", 100);
+        setSettingsLogLimit(String(savedDefaultLimit));
+        setLogLimit(savedDefaultLimit);
+
+        await loadAdminData(savedPassword);
+        await refreshDashboardSnapshot(savedPassword);
+        await loadNotifications(savedPassword, 100);
+        if (!cancelled) {
+          setNotice("Admin session restored.");
+        }
+      } catch {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(ADMIN_SESSION_PASSWORD_KEY);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsSessionChecked(true);
+        }
+      }
+    }
+
+    restoreAdminSession();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const adminTopbar = (
     <div className="admin-topbar">
@@ -570,20 +1063,93 @@ export default function AdminPage() {
             Admin
           </NavLink>
         </nav>
-        <button
-          type="button"
-          className={`topbar-icon-btn ${notificationsEnabled ? "active" : ""}`}
-          onClick={handleNotificationsToggle}
-          aria-label={notificationsEnabled ? "Disable notifications" : "Enable notifications"}
-          aria-pressed={notificationsEnabled}
-          title={notificationsEnabled ? "Notifications on" : "Notifications off"}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
-            <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
-            {!notificationsEnabled && <line x1="4" y1="4" x2="20" y2="20" />}
-          </svg>
-        </button>
+        <div className="notification-popover-wrap">
+          <button
+            ref={notificationButtonRef}
+            type="button"
+            className={`topbar-icon-btn ${isNotificationPanelOpen ? "active" : ""}`}
+            onClick={toggleNotificationPanel}
+            aria-label={isNotificationPanelOpen ? "Close notifications" : "Open notifications"}
+            aria-pressed={isNotificationPanelOpen}
+            title={notificationsApiAvailable ? "Notifications" : "Notifications unavailable"}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+              <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
+            </svg>
+            {unreadNotificationCount > 0 && (
+              <span className="notification-badge">
+                {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+              </span>
+            )}
+          </button>
+
+          {isNotificationPanelOpen && (
+            <section ref={notificationPopoverRef} className="notification-popover panel">
+              <div className="panel-header">
+                <h3>Notifications</h3>
+                <span className="tab-badge">{unreadNotificationCount} unread</span>
+              </div>
+              <div className="notification-toolbar">
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={handleMarkAllNotificationsRead}
+                  disabled={notifications.length === 0}
+                >
+                  Mark All Read
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => loadNotifications(adminPassword, 100, true)}
+                  disabled={!adminPassword}
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="notification-list">
+                {notifications.length === 0 && (
+                  <p className="muted-text">No notifications yet.</p>
+                )}
+                {notifications.map((item) => (
+                  <article
+                    key={item.id}
+                    className={`notification-item ${item.is_read ? "read" : "unread"}`}
+                  >
+                    <div className="notification-head">
+                      <strong>{item.title}</strong>
+                      <span className="summary-pill">{formatRelativeTime(item.created_at)}</span>
+                    </div>
+                    <p>{item.message}</p>
+                    <div className="notification-meta">
+                      <span className="table-badge">{item.client_code}</span>
+                      <span>{displayValue(item.client_name, "Unknown client")}</span>
+                    </div>
+                    <div className="notification-actions">
+                      {!item.is_read && (
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => handleMarkNotificationRead(item.id)}
+                        >
+                          Mark Read
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="ghost-btn danger-text"
+                        onClick={() => handleDeleteNotification(item.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
         <button
           type="button"
           className="topbar-icon-btn"
@@ -614,14 +1180,27 @@ export default function AdminPage() {
             <button type="button" className="ghost-btn" onClick={refreshAdminData} disabled={loading}>
               {loading ? "Working..." : "Refresh All"}
             </button>
-            <button type="button" className="ghost-btn danger-text" onClick={logoutAdmin} disabled={loading}>
-              Sign Out
-            </button>
           </>
         )}
       </div>
     </div>
   );
+
+  if (!isSessionChecked) {
+    return (
+      <section className="admin-login-screen">
+        <div className="admin-login-stack">
+          <div className="admin-login-card">
+            <div className="admin-login-header">
+              <div className="admin-login-icon">B</div>
+              <h2>Loading Admin Console</h2>
+            </div>
+            <p className="admin-login-copy">Checking saved admin session...</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
@@ -664,6 +1243,13 @@ export default function AdminPage() {
       <nav className="admin-tabs">
         <button
           type="button"
+          className={`admin-tab ${activeTab === "dashboard" ? "active" : ""}`}
+          onClick={() => setActiveTab("dashboard")}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
           className={`admin-tab ${activeTab === "profiles" ? "active" : ""}`}
           onClick={() => setActiveTab("profiles")}
         >
@@ -692,9 +1278,121 @@ export default function AdminPage() {
           Request Logs
           {logs.length > 0 && <span className="tab-badge">{logs.length}</span>}
         </button>
+        <button
+          type="button"
+          className={`admin-tab ${activeTab === "settings" ? "active" : ""}`}
+          onClick={() => setActiveTab("settings")}
+        >
+          Settings
+        </button>
       </nav>
 
       <div className="admin-tab-content">
+        {activeTab === "dashboard" && (
+          <div className="admin-section">
+            <div className="dashboard-kpi-grid">
+              <article className="panel dashboard-kpi-card">
+                <p className="dashboard-kpi-label">Total Clients</p>
+                <p className="dashboard-kpi-value">{dashboardStats.totalClients}</p>
+                <p className="muted-text">Profiles in directory</p>
+              </article>
+              <article className="panel dashboard-kpi-card">
+                <p className="dashboard-kpi-label">Recent Requests</p>
+                <p className="dashboard-kpi-value">{dashboardStats.totalRequests}</p>
+                <p className="muted-text">Live snapshot (last 500)</p>
+              </article>
+              <article className="panel dashboard-kpi-card">
+                <p className="dashboard-kpi-label">Requests (7 Days)</p>
+                <p className="dashboard-kpi-value">{dashboardStats.recentRequests7d}</p>
+                <p className="muted-text">Recent workload trend</p>
+              </article>
+              <article className="panel dashboard-kpi-card">
+                <p className="dashboard-kpi-label">Active Clients (30 Days)</p>
+                <p className="dashboard-kpi-value">{dashboardStats.activeClients30d}</p>
+                <p className="muted-text">Clients with recent requests</p>
+              </article>
+              <article className="panel dashboard-kpi-card">
+                <p className="dashboard-kpi-label">Monday Coverage</p>
+                <p className="dashboard-kpi-value">{dashboardStats.mondayCoverage}%</p>
+                <p className="muted-text">{dashboardStats.mondayLinked} requests linked</p>
+              </article>
+              <article className="panel dashboard-kpi-card">
+                <p className="dashboard-kpi-label">Profile Completeness</p>
+                <p className="dashboard-kpi-value">{dashboardStats.profileCompleteness}%</p>
+                <p className="muted-text">Optional fields utilization</p>
+              </article>
+            </div>
+
+            <div className="dashboard-grid">
+              <article className="panel">
+                <div className="panel-header">
+                  <h3>Top Services</h3>
+                  <span className="tab-badge">{dashboardStats.topServices.length}</span>
+                </div>
+                <p className="muted-text">
+                  {dashboardUpdatedAt
+                    ? `Last updated: ${new Date(dashboardUpdatedAt).toLocaleTimeString()}`
+                    : "Waiting for live data..."}
+                </p>
+                <div className="dashboard-list">
+                  {dashboardStats.topServices.length === 0 && (
+                    <p className="muted-text">No service activity yet.</p>
+                  )}
+                  {dashboardStats.topServices.map((item) => (
+                    <div key={item.name} className="dashboard-list-row">
+                      <span>{item.name}</span>
+                      <span className="summary-pill">{item.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="panel">
+                <div className="panel-header">
+                  <h3>Client Tiers</h3>
+                  <span className="tab-badge">{dashboardStats.tierDistribution.length}</span>
+                </div>
+                <div className="dashboard-list">
+                  {dashboardStats.tierDistribution.length === 0 && (
+                    <p className="muted-text">No client tiers recorded yet.</p>
+                  )}
+                  {dashboardStats.tierDistribution.map((item) => (
+                    <div key={item.name} className="dashboard-list-row">
+                      <span>{item.name}</span>
+                      <span className="summary-pill">{item.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              <article className="panel dashboard-recent-panel">
+                <div className="panel-header">
+                  <h3>Recent Activity</h3>
+                  <span className="tab-badge">{dashboardStats.latestLogs.length}</span>
+                </div>
+                <div className="dashboard-list">
+                  {dashboardStats.latestLogs.length === 0 && (
+                    <p className="muted-text">No recent submissions.</p>
+                  )}
+                  {dashboardStats.latestLogs.map((log) => (
+                    <div key={log.id} className="dashboard-activity-row">
+                      <div>
+                        <p className="dashboard-activity-title">{displayValue(log.project_title, "Untitled request")}</p>
+                        <p className="muted-text">
+                          {displayValue(log.client_name, log.client_code)} • {displayValue(log.service_type, "Unknown service")}
+                        </p>
+                      </div>
+                      <time className="dashboard-time" dateTime={log.created_at}>
+                        {toMs(log.created_at) ? new Date(log.created_at).toLocaleString() : "Unknown time"}
+                      </time>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </div>
+          </div>
+        )}
+
         {activeTab === "profiles" && (
           <div className="admin-section">
             <div className="admin-profiles-grid">
@@ -722,7 +1420,7 @@ export default function AdminPage() {
                 </div>
 
                 <p className="muted-text">Editing: {selectedProfileLabel}</p>
-                <p className="muted-text">Only Turnaround Rules and Compliance Notes are optional.</p>
+                <p className="muted-text">Only Client Name and Client Code are required. All other fields are optional.</p>
 
                 <div className="admin-form-grid">
                   <label className="admin-field">
@@ -746,7 +1444,6 @@ export default function AdminPage() {
                   <label className="admin-field">
                     Subscription Tier
                     <input
-                      required
                       value={profileForm.subscription_tier}
                       onChange={(event) => updateProfileField("subscription_tier", event.target.value)}
                       placeholder={PROFILE_PLACEHOLDERS.subscription_tier}
@@ -755,7 +1452,6 @@ export default function AdminPage() {
                   <label className="admin-field">
                     Default Approver
                     <input
-                      required
                       value={profileForm.default_approver}
                       onChange={(event) => updateProfileField("default_approver", event.target.value)}
                       placeholder={PROFILE_PLACEHOLDERS.default_approver}
@@ -764,7 +1460,6 @@ export default function AdminPage() {
                   <label className="admin-field">
                     Preferred Tone
                     <input
-                      required
                       value={profileForm.preferred_tone}
                       onChange={(event) => updateProfileField("preferred_tone", event.target.value)}
                       placeholder={PROFILE_PLACEHOLDERS.preferred_tone}
@@ -773,7 +1468,6 @@ export default function AdminPage() {
                   <label className="admin-field admin-field-wide">
                     Brand Voice Rules
                     <textarea
-                      required
                       rows="3"
                       value={profileForm.brand_voice_rules}
                       onChange={(event) => updateProfileField("brand_voice_rules", event.target.value)}
@@ -783,7 +1477,6 @@ export default function AdminPage() {
                   <label className="admin-field">
                     Words To Avoid (one per line)
                     <textarea
-                      required
                       rows="4"
                       value={linesToText(profileForm.words_to_avoid)}
                       onChange={(event) =>
@@ -795,7 +1488,6 @@ export default function AdminPage() {
                   <label className="admin-field">
                     Common Audiences (one per line)
                     <textarea
-                      required
                       rows="4"
                       value={linesToText(profileForm.common_audiences)}
                       onChange={(event) =>
@@ -818,7 +1510,6 @@ export default function AdminPage() {
                   <label className="admin-field admin-field-wide">
                     Required Disclaimers
                     <textarea
-                      required
                       rows="3"
                       value={profileForm.required_disclaimers}
                       onChange={(event) => updateProfileField("required_disclaimers", event.target.value)}
@@ -1271,6 +1962,97 @@ export default function AdminPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </article>
+          </div>
+        )}
+
+        {activeTab === "settings" && (
+          <div className="admin-section">
+            <article className="panel settings-panel">
+              <div className="panel-header">
+                <h3>Admin Settings</h3>
+                <span className="tab-badge">Config</span>
+              </div>
+              <p className="muted-text">
+                Configure console behavior and admin controls. These settings apply to your browser session.
+              </p>
+
+              <div className="settings-grid">
+                <label className="admin-field">
+                  Auto Refresh
+                  <select
+                    value={autoRefreshEnabled ? "on" : "off"}
+                    onChange={(event) => setAutoRefreshEnabled(event.target.value === "on")}
+                  >
+                    <option value="on">Enabled</option>
+                    <option value="off">Disabled</option>
+                  </select>
+                </label>
+
+                <label className="admin-field">
+                  Dashboard Refresh Interval
+                  <select
+                    value={String(dashboardPollSeconds)}
+                    onChange={(event) => setDashboardPollSeconds(Number.parseInt(event.target.value, 10))}
+                  >
+                    <option value="5">5 seconds</option>
+                    <option value="10">10 seconds</option>
+                    <option value="15">15 seconds</option>
+                    <option value="30">30 seconds</option>
+                  </select>
+                </label>
+
+                <label className="admin-field">
+                  Notification Refresh Interval
+                  <select
+                    value={String(notificationPollSeconds)}
+                    onChange={(event) => setNotificationPollSeconds(Number.parseInt(event.target.value, 10))}
+                  >
+                    <option value="5">5 seconds</option>
+                    <option value="8">8 seconds</option>
+                    <option value="10">10 seconds</option>
+                    <option value="15">15 seconds</option>
+                  </select>
+                </label>
+
+                <label className="admin-field">
+                  Default Request Log Limit
+                  <select
+                    value={settingsLogLimit}
+                    onChange={(event) => setSettingsLogLimit(event.target.value)}
+                  >
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="settings-actions">
+                <button type="button" className="primary-btn" onClick={applySettingsChanges} disabled={loading}>
+                  Save Settings
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => loadNotifications(adminPassword, 100, true)}
+                  disabled={!adminPassword}
+                >
+                  Refresh Notifications
+                </button>
+                <button type="button" className="ghost-btn" onClick={refreshAdminData} disabled={loading}>
+                  Refresh All Data
+                </button>
+              </div>
+
+              <div className="settings-signout">
+                <p className="muted-text">Account</p>
+                <button type="button" className="ghost-btn danger-text" onClick={logoutAdmin} disabled={loading}>
+                  Sign Out
+                </button>
               </div>
             </article>
           </div>

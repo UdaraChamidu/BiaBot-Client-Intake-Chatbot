@@ -21,6 +21,7 @@ class InMemoryStore:
         }
         self.service_options = list(DEFAULT_SERVICE_OPTIONS)
         self.request_logs: list[dict[str, Any]] = []
+        self.admin_notifications: list[dict[str, Any]] = []
 
     def get_client_profile(self, client_code: str) -> dict[str, Any] | None:
         return self.client_profiles.get(client_code)
@@ -72,6 +73,62 @@ class InMemoryStore:
 
     def list_request_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         return self.request_logs[:limit]
+
+    def create_admin_notification(
+        self,
+        *,
+        client_code: str,
+        client_name: str,
+        title: str,
+        message: str,
+        notification_type: str = "profile_update",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            "created_at": datetime.now(timezone.utc),
+            "client_code": client_code,
+            "client_name": client_name,
+            "title": title,
+            "message": message,
+            "notification_type": notification_type,
+            "is_read": False,
+            "metadata": metadata or {},
+        }
+        self.admin_notifications.insert(0, record)
+        return record
+
+    def list_admin_notifications(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self.admin_notifications[:limit]
+
+    def mark_admin_notification_read(self, notification_id: str) -> dict[str, Any] | None:
+        for idx, row in enumerate(self.admin_notifications):
+            if str(row.get("id")) != notification_id:
+                continue
+            updated = dict(row)
+            updated["is_read"] = True
+            self.admin_notifications[idx] = updated
+            return updated
+        return None
+
+    def mark_all_admin_notifications_read(self) -> int:
+        affected = 0
+        updated_rows: list[dict[str, Any]] = []
+        for row in self.admin_notifications:
+            if not row.get("is_read"):
+                affected += 1
+            next_row = dict(row)
+            next_row["is_read"] = True
+            updated_rows.append(next_row)
+        self.admin_notifications = updated_rows
+        return affected
+
+    def delete_admin_notification(self, notification_id: str) -> bool:
+        before = len(self.admin_notifications)
+        self.admin_notifications = [
+            row for row in self.admin_notifications if str(row.get("id")) != notification_id
+        ]
+        return len(self.admin_notifications) < before
 
 
 class SupabaseStore:
@@ -164,6 +221,75 @@ class SupabaseStore:
             .execute()
         )
         return response.data or []
+
+    def create_admin_notification(
+        self,
+        *,
+        client_code: str,
+        client_name: str,
+        title: str,
+        message: str,
+        notification_type: str = "profile_update",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        row = {
+            "client_code": client_code,
+            "client_name": client_name,
+            "title": title,
+            "message": message,
+            "notification_type": notification_type,
+            "is_read": False,
+            "metadata": metadata or {},
+        }
+        response = self.client.table("admin_notifications").insert(row).execute()
+        rows = response.data or []
+        return rows[0] if rows else row
+
+    def list_admin_notifications(self, limit: int = 100) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("admin_notifications")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return response.data or []
+
+    def mark_admin_notification_read(self, notification_id: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("admin_notifications")
+            .update({"is_read": True})
+            .eq("id", notification_id)
+            .select("*")
+            .limit(1)
+            .execute()
+        )
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    def mark_all_admin_notifications_read(self) -> int:
+        response = (
+            self.client.table("admin_notifications")
+            .update({"is_read": True})
+            .eq("is_read", False)
+            .select("id")
+            .execute()
+        )
+        rows = response.data or []
+        return len(rows)
+
+    def delete_admin_notification(self, notification_id: str) -> bool:
+        existing = (
+            self.client.table("admin_notifications")
+            .select("id")
+            .eq("id", notification_id)
+            .limit(1)
+            .execute()
+        )
+        if not (existing.data or []):
+            return False
+        self.client.table("admin_notifications").delete().eq("id", notification_id).execute()
+        return True
 
 
 _store: InMemoryStore | SupabaseStore | None = None

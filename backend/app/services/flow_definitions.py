@@ -29,6 +29,23 @@ CORE_QUESTIONS = [
 ]
 
 BRANCH_QUESTIONS = {
+    "Graphic": [
+        IntakeQuestion(id="dimensions", label="Dimensions / format", question_type="text"),
+        IntakeQuestion(
+            id="copy_provided",
+            label="Copy provided?",
+            question_type="choice",
+            options=["Yes", "No"],
+        ),
+        IntakeQuestion(id="bilingual", label="Bilingual?", question_type="choice", options=["Yes", "No"]),
+        IntakeQuestion(id="image_source", label="Stock or provided images?", question_type="text"),
+        IntakeQuestion(
+            id="accessibility",
+            label="Accessibility requirements",
+            question_type="text",
+            required=False,
+        ),
+    ],
     "Custom graphic": [
         IntakeQuestion(id="dimensions", label="Dimensions / format", question_type="text"),
         IntakeQuestion(
@@ -70,6 +87,13 @@ BRANCH_QUESTIONS = {
         IntakeQuestion(id="metrics", label="Metrics to include", question_type="text", required=False),
         IntakeQuestion(id="distribution", label="Distribution channel", question_type="text"),
     ],
+    "Newsletter": [
+        IntakeQuestion(id="newsletter_tone", label="Internal or external tone", question_type="text"),
+        IntakeQuestion(id="sections", label="Sections required", question_type="text"),
+        IntakeQuestion(id="content_status", label="Content provided or drafted?", question_type="text"),
+        IntakeQuestion(id="metrics", label="Metrics to include", question_type="text", required=False),
+        IntakeQuestion(id="distribution", label="Distribution channel", question_type="text"),
+    ],
     "External newsletter (up to 3 pages)": [
         IntakeQuestion(id="newsletter_tone", label="Internal or external tone", question_type="text"),
         IntakeQuestion(id="sections", label="Sections required", question_type="text"),
@@ -78,6 +102,23 @@ BRANCH_QUESTIONS = {
         IntakeQuestion(id="distribution", label="Distribution channel", question_type="text"),
     ],
     "Press release": [
+        IntakeQuestion(id="announcement_summary", label="Announcement summary", question_type="text"),
+        IntakeQuestion(
+            id="quotes_needed",
+            label="Quotes needed?",
+            question_type="choice",
+            options=["Yes", "No"],
+        ),
+        IntakeQuestion(
+            id="boilerplate",
+            label="Boilerplate inclusion",
+            question_type="choice",
+            options=["Yes", "No"],
+        ),
+        IntakeQuestion(id="media_targets", label="Media targets", question_type="text"),
+        IntakeQuestion(id="assets_needed", label="Assets needed", question_type="text", required=False),
+    ],
+    "Press Release": [
         IntakeQuestion(id="announcement_summary", label="Announcement summary", question_type="text"),
         IntakeQuestion(
             id="quotes_needed",
@@ -112,6 +153,17 @@ BRANCH_QUESTIONS = {
         IntakeQuestion(id="assets_needed", label="Assets needed", question_type="text", required=False),
     ],
     "Campaign set (up to 6 assets)": [
+        IntakeQuestion(id="channels", label="Channels required", question_type="text"),
+        IntakeQuestion(id="asset_list", label="Asset list", question_type="text"),
+        IntakeQuestion(id="launch_timeline", label="Launch timeline", question_type="text"),
+        IntakeQuestion(
+            id="paid_promo",
+            label="Paid promotion required?",
+            question_type="choice",
+            options=["Yes", "No"],
+        ),
+    ],
+    "Campaign Set": [
         IntakeQuestion(id="channels", label="Channels required", question_type="text"),
         IntakeQuestion(id="asset_list", label="Asset list", question_type="text"),
         IntakeQuestion(id="launch_timeline", label="Launch timeline", question_type="text"),

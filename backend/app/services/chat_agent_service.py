@@ -51,6 +51,7 @@ ACTION_ACCEPT_CONFIDENCE = 0.68
 
 CLIENT_CODE_PROMPT = "Let's get you into your workspace. Enter your client code below."
 CLIENT_CODE_RETRY_PROMPT = "That code doesn't match our records. Double-check it or contact your BiAgent."
+SUMMARY_EDIT_PREFIX = "EDIT_SUMMARY::"
 
 CORE_FIELDS = {
     "project_title",
@@ -374,6 +375,13 @@ class ChatAgentService:
                 suggestions=self._service_options(profile) if profile else [],
                 profile=profile,
             )
+
+        # Handle explicit skip reliably before LLM/rule extraction.
+        if not question.required and message.strip().lower() in {"skip", "none", "na", "n/a", "not applicable"}:
+            self._clear_pending_clarification(session)
+            session.answers[question.id] = ""
+            session.question_index += 1
+            return self._advance_after_answer(session=session, profile=profile)
 
         if session.pending_field_id == question.id:
             clarification_response = self._resolve_pending_clarification(
@@ -814,6 +822,37 @@ class ChatAgentService:
                 ),
             )
 
+        if message.strip().startswith(SUMMARY_EDIT_PREFIX):
+            edited_summary = message.strip()[len(SUMMARY_EDIT_PREFIX) :].strip()
+            if not edited_summary:
+                return self._response(
+                    session,
+                    self._assistant_text(
+                        fallback="I could not apply that summary edit because it was empty.",
+                        phase=session.phase,
+                    ),
+                    suggestions=["Submit", "Restart"],
+                    profile=profile,
+                    service_type=session.service_type,
+                    ready_to_submit=True,
+                    summary=session.summary,
+                )
+            session.summary = edited_summary
+            return self._response(
+                session,
+                self._assistant_text(
+                    fallback=(
+                        "Summary updated. Please review the revised text below and choose Submit when ready."
+                    ),
+                    phase=session.phase,
+                ),
+                suggestions=["Submit", "Restart"],
+                profile=profile,
+                service_type=session.service_type,
+                ready_to_submit=True,
+                summary=session.summary,
+            )
+
         action = self._control_action(
             phase=session.phase,
             message=message,
@@ -867,6 +906,32 @@ class ChatAgentService:
                 payload=payload.model_dump(mode="json"),
                 monday_item_id=monday_result.item_id,
             )
+            try:
+                self.store.create_admin_notification(
+                    client_code=profile["client_code"],
+                    client_name=profile["client_name"],
+                    title="Client submitted intake request",
+                    message=(
+                        f"{profile['client_name']} ({profile['client_code']}) submitted "
+                        f"{payload.service_type} for \"{payload.project_title}\"."
+                    ),
+                    notification_type="intake_submit",
+                    metadata={
+                        "request_id": str(log["id"]),
+                        "service_type": payload.service_type,
+                        "project_title": payload.project_title,
+                        "monday_item_id": monday_result.item_id,
+                    },
+                )
+            except Exception:
+                # Notification failures should not block request submission.
+                pass
+            if payload.approver and str(payload.approver).strip():
+                refreshed_profile = dict(profile)
+                refreshed_profile["default_approver"] = str(payload.approver).strip()
+                self.store.upsert_client_profile(refreshed_profile)
+                profile = refreshed_profile
+                session.client_profile = refreshed_profile
             session.phase = "done"
             session.summary = summary
             return self._response(

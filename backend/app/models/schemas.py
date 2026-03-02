@@ -20,7 +20,7 @@ class ClientCodeRequest(BaseModel):
 class ClientProfile(BaseModel):
     client_name: str
     client_code: str
-    brand_voice_rules: str
+    brand_voice_rules: str = ""
     words_to_avoid: list[str] = Field(default_factory=list)
     required_disclaimers: str | None = None
     preferred_tone: str | None = None
@@ -36,13 +36,13 @@ class ClientProfile(BaseModel):
 class AdminClientProfileUpsert(BaseModel):
     client_name: str
     client_code: str
-    brand_voice_rules: str
+    brand_voice_rules: str = ""
     words_to_avoid: list[str] = Field(default_factory=list)
-    required_disclaimers: str
-    preferred_tone: str
+    required_disclaimers: str = ""
+    preferred_tone: str = ""
     common_audiences: list[str] = Field(default_factory=list)
-    default_approver: str
-    subscription_tier: str
+    default_approver: str = ""
+    subscription_tier: str = ""
     credit_menu: dict[str, int] = Field(default_factory=dict)
     turnaround_rules: str | None = None
     compliance_notes: str | None = None
@@ -51,11 +51,6 @@ class AdminClientProfileUpsert(BaseModel):
     @field_validator(
         "client_name",
         "client_code",
-        "brand_voice_rules",
-        "required_disclaimers",
-        "preferred_tone",
-        "default_approver",
-        "subscription_tier",
         mode="before",
     )
     @classmethod
@@ -65,6 +60,18 @@ class AdminClientProfileUpsert(BaseModel):
             raise ValueError("This field is required.")
         return text
 
+    @field_validator(
+        "brand_voice_rules",
+        "required_disclaimers",
+        "preferred_tone",
+        "default_approver",
+        "subscription_tier",
+        mode="before",
+    )
+    @classmethod
+    def _optional_text(cls, value: Any) -> str:
+        return str(value or "").strip()
+
     @field_validator("client_code", mode="after")
     @classmethod
     def _normalize_client_code(cls, value: str) -> str:
@@ -72,7 +79,7 @@ class AdminClientProfileUpsert(BaseModel):
 
     @field_validator("turnaround_rules", "compliance_notes", mode="before")
     @classmethod
-    def _optional_text(cls, value: Any) -> str | None:
+    def _optional_nullable_text(cls, value: Any) -> str | None:
         if value is None:
             return None
         text = str(value).strip()
@@ -80,13 +87,10 @@ class AdminClientProfileUpsert(BaseModel):
 
     @field_validator("words_to_avoid", "common_audiences", mode="before")
     @classmethod
-    def _required_list(cls, value: Any) -> list[str]:
+    def _optional_list(cls, value: Any) -> list[str]:
         if not isinstance(value, list):
             raise ValueError("Must be a list of text values.")
-        cleaned = [str(item).strip() for item in value if str(item).strip()]
-        if not cleaned:
-            raise ValueError("At least one item is required.")
-        return cleaned
+        return [str(item).strip() for item in value if str(item).strip()]
 
     @field_validator("service_options", mode="before")
     @classmethod
@@ -97,7 +101,7 @@ class AdminClientProfileUpsert(BaseModel):
 
     @field_validator("credit_menu", mode="before")
     @classmethod
-    def _required_credit_menu(cls, value: Any) -> dict[str, int]:
+    def _optional_credit_menu(cls, value: Any) -> dict[str, int]:
         if not isinstance(value, dict):
             raise ValueError("Credit menu must be an object.")
         cleaned: dict[str, int] = {}
@@ -112,8 +116,6 @@ class AdminClientProfileUpsert(BaseModel):
             if credits < 0:
                 raise ValueError(f'Credit value for "{key}" must be non-negative.')
             cleaned[key] = credits
-        if not cleaned:
-            raise ValueError("At least one credit menu item is required.")
         return cleaned
 
 
@@ -248,3 +250,20 @@ class RequestLogRecord(BaseModel):
     summary: str
     monday_item_id: str | None = None
     payload: dict[str, Any]
+
+
+class AdminNotificationRecord(BaseModel):
+    id: str
+    created_at: datetime
+    client_code: str
+    client_name: str
+    title: str
+    message: str
+    notification_type: str = "profile_update"
+    is_read: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NotificationBulkActionResponse(BaseModel):
+    ok: bool = True
+    affected: int = 0

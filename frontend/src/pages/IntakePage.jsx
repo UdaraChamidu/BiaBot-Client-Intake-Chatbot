@@ -58,6 +58,8 @@ export default function IntakePage() {
   const [welcomeNotice, setWelcomeNotice] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [summarySource, setSummarySource] = useState("");
 
   const tailRef = useRef(null);
   const welcomeTimeoutRef = useRef(null);
@@ -83,6 +85,13 @@ export default function IntakePage() {
     setPhase(nextPhase);
     setSuggestions(nextSuggestions);
     setProfile(nextProfile);
+    if (response?.ready_to_submit && typeof response?.summary === "string") {
+      setSummarySource(response.summary);
+      setSummaryDraft(response.summary);
+    } else if (nextPhase !== "await_confirmation") {
+      setSummarySource("");
+      setSummaryDraft("");
+    }
 
     if (resetMessages) {
       setMessages([makeMessage("bot", botText)]);
@@ -139,7 +148,7 @@ export default function IntakePage() {
   async function submitMessage(rawText) {
     const text = rawText.trim();
     if (!text || isBusy) {
-      return;
+      return false;
     }
 
     pushUserMessage(text);
@@ -150,8 +159,10 @@ export default function IntakePage() {
         message: text,
       });
       hydrateFromResponse(response);
+      return true;
     } catch {
       pushBotMessage("I could not process that message right now. Please try again.");
+      return false;
     } finally {
       setIsBusy(false);
     }
@@ -166,6 +177,29 @@ export default function IntakePage() {
 
   async function onSuggestionClick(option) {
     await submitMessage(option);
+  }
+
+  async function handleUpdateSummary() {
+    if (!summaryDraft.trim() || phase !== "await_confirmation" || isBusy) {
+      return;
+    }
+    if (summaryDraft.trim() === summarySource.trim()) {
+      return;
+    }
+    await submitMessage(`EDIT_SUMMARY::${summaryDraft.trim()}`);
+  }
+
+  async function handleSendToBianomics() {
+    if (phase !== "await_confirmation" || isBusy) {
+      return;
+    }
+    if (summaryDraft.trim() && summaryDraft.trim() !== summarySource.trim()) {
+      const saved = await submitMessage(`EDIT_SUMMARY::${summaryDraft.trim()}`);
+      if (!saved) {
+        return;
+      }
+    }
+    await submitMessage("Submit");
   }
 
   function handleThemeToggle() {
@@ -622,6 +656,51 @@ export default function IntakePage() {
               </button>
             ))}
           </div>
+        )}
+
+        {phase === "await_confirmation" && (
+          <section className="summary-editor-card">
+            <div className="summary-editor-head">
+              <p className="chatbot-tag">Final Review</p>
+              <h3>Mission Summary</h3>
+            </div>
+            <p className="muted-text">
+              Edit anything you want before sending this request to Bianomics.
+            </p>
+            <textarea
+              className="summary-editor-textarea"
+              value={summaryDraft}
+              onChange={(event) => setSummaryDraft(event.target.value)}
+              placeholder="Your summary will appear here."
+              disabled={isBusy}
+            />
+            <div className="summary-editor-actions">
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={handleUpdateSummary}
+                disabled={isBusy || !summaryDraft.trim() || summaryDraft.trim() === summarySource.trim()}
+              >
+                Update Summary
+              </button>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={handleSendToBianomics}
+                disabled={isBusy || !summaryDraft.trim()}
+              >
+                Send to Bianomics
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => submitMessage("Restart")}
+                disabled={isBusy}
+              >
+                Restart Intake
+              </button>
+            </div>
+          </section>
         )}
 
         <form className="chat-composer" onSubmit={onComposerSubmit}>

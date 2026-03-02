@@ -52,3 +52,43 @@ export async function getRequestLogs(adminPassword, limit = 100) {
   });
   return data;
 }
+
+export async function getAdminNotifications(adminPassword, limit = 100) {
+  const { data } = await apiClient.get("/admin/notifications", {
+    headers: adminHeaders(adminPassword),
+    params: { limit },
+  });
+  return data;
+}
+
+export async function markAdminNotificationRead(adminPassword, notificationId) {
+  const { data } = await apiClient.post(
+    `/admin/notifications/${encodeURIComponent(notificationId)}/read`,
+    {},
+    {
+      headers: adminHeaders(adminPassword),
+    }
+  );
+  return data;
+}
+
+export async function markAllAdminNotificationsRead(adminPassword) {
+  const { data } = await apiClient.post(
+    "/admin/notifications/read-all",
+    {},
+    {
+      headers: adminHeaders(adminPassword),
+    }
+  );
+  return data;
+}
+
+export async function deleteAdminNotification(adminPassword, notificationId) {
+  const { data } = await apiClient.delete(
+    `/admin/notifications/${encodeURIComponent(notificationId)}`,
+    {
+      headers: adminHeaders(adminPassword),
+    }
+  );
+  return data;
+}

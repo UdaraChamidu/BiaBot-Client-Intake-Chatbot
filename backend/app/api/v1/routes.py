@@ -13,6 +13,7 @@ from app.core.security import (
 )
 from app.models.schemas import (
     AdminClientProfileUpsert,
+    AdminNotificationRecord,
     AdminAuthRequest,
     AdminAuthResponse,
     ChatMessageRequest,
@@ -28,6 +29,7 @@ from app.models.schemas import (
     IntakeSubmission,
     MondayCredentialCheckRequest,
     MondayCredentialCheckResponse,
+    NotificationBulkActionResponse,
     RequestLogRecord,
     ServiceOptionsUpdate,
 )
@@ -180,6 +182,30 @@ def submit_intake(
         payload=payload.model_dump(mode="json"),
         monday_item_id=monday_result.item_id,
     )
+    try:
+        store.create_admin_notification(
+            client_code=profile["client_code"],
+            client_name=profile["client_name"],
+            title="Client submitted intake request",
+            message=(
+                f"{profile['client_name']} ({profile['client_code']}) submitted "
+                f"{payload.service_type} for \"{payload.project_title}\"."
+            ),
+            notification_type="intake_submit",
+            metadata={
+                "request_id": str(log["id"]),
+                "service_type": payload.service_type,
+                "project_title": payload.project_title,
+                "monday_item_id": monday_result.item_id,
+            },
+        )
+    except Exception:
+        pass
+
+    if payload.approver and str(payload.approver).strip():
+        refreshed_profile = dict(profile)
+        refreshed_profile["default_approver"] = str(payload.approver).strip()
+        store.upsert_client_profile(refreshed_profile)
 
     return IntakeSubmitResponse(request_id=str(log["id"]), summary=summary, monday=monday_result)
 
@@ -253,6 +279,57 @@ def admin_get_request_logs(
     for row in rows:
         normalized.append(row)
     return [RequestLogRecord.model_validate(row) for row in normalized]
+
+
+@router.get("/admin/notifications", response_model=list[AdminNotificationRecord], tags=["admin"])
+def admin_get_notifications(
+    limit: int = Query(default=100, ge=1, le=500),
+    _: None = Depends(require_admin),
+) -> list[AdminNotificationRecord]:
+    rows = store.list_admin_notifications(limit=limit)
+    return [AdminNotificationRecord.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/admin/notifications/{notification_id}/read",
+    response_model=AdminNotificationRecord,
+    tags=["admin"],
+)
+def admin_mark_notification_read(
+    notification_id: str,
+    _: None = Depends(require_admin),
+) -> AdminNotificationRecord:
+    row = store.mark_admin_notification_read(notification_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    return AdminNotificationRecord.model_validate(row)
+
+
+@router.post(
+    "/admin/notifications/read-all",
+    response_model=NotificationBulkActionResponse,
+    tags=["admin"],
+)
+def admin_mark_all_notifications_read(
+    _: None = Depends(require_admin),
+) -> NotificationBulkActionResponse:
+    affected = store.mark_all_admin_notifications_read()
+    return NotificationBulkActionResponse(ok=True, affected=affected)
+
+
+@router.delete(
+    "/admin/notifications/{notification_id}",
+    response_model=NotificationBulkActionResponse,
+    tags=["admin"],
+)
+def admin_delete_notification(
+    notification_id: str,
+    _: None = Depends(require_admin),
+) -> NotificationBulkActionResponse:
+    deleted = store.delete_admin_notification(notification_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    return NotificationBulkActionResponse(ok=True, affected=1)
 
 
 @router.post("/admin/monday/verify", response_model=MondayCredentialCheckResponse, tags=["admin"])
