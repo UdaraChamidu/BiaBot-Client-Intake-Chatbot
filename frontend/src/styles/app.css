@@ -1677,7 +1677,7 @@ select:focus {
 .notification-popover {
   position: absolute;
   top: calc(100% + 10px);
-  right: -20px;
+  right: -154px;
   width: min(460px, calc(100vw - 20px));
   max-height: 70vh;
   z-index: 9999;
@@ -1858,6 +1858,52 @@ select:focus {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.admin-toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 12000;
+  display: grid;
+  gap: 8px;
+  width: min(460px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.admin-toast {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-weight: 600;
+  line-height: 1.4;
+  animation: adminToastIn 0.2s ease;
+}
+
+.admin-toast.success {
+  border-color: var(--success-border);
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--success) 16%);
+  color: var(--success);
+}
+
+.admin-toast.error {
+  border-color: var(--danger-border);
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--danger) 16%);
+  color: var(--danger);
+}
+
+@keyframes adminToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .admin-profiles-grid {
@@ -2667,7 +2713,7 @@ tbody tr:hover {
   }
 
   .notification-popover {
-    right: -6px;
+    right: -10px;
     width: min(420px, calc(100vw - 24px));
   }
 

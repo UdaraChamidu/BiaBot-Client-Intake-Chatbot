@@ -380,6 +380,16 @@ export default function AdminPage() {
     () => notifications.filter((item) => !item.is_read).length,
     [notifications]
   );
+  const toastMessages = useMemo(() => {
+    const items = [];
+    if (error) {
+      items.push({ id: "error", kind: "error", text: error });
+    }
+    if (notice) {
+      items.push({ id: "notice", kind: "success", text: notice });
+    }
+    return items;
+  }, [error, notice]);
 
   const dashboardStats = useMemo(() => {
     const metricProfiles = dashboardProfiles.length ? dashboardProfiles : profiles;
@@ -981,6 +991,22 @@ export default function AdminPage() {
   }, [isNotificationPanelOpen]);
 
   useEffect(() => {
+    if (!error) {
+      return;
+    }
+    const timer = setTimeout(() => setError(""), 3000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const timer = setTimeout(() => setNotice(""), 2000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function restoreAdminSession() {
@@ -1206,8 +1232,6 @@ export default function AdminPage() {
     return (
       <section className="admin-login-screen">
         <div className="admin-login-stack">
-          {error && <p className="error-banner">{error}</p>}
-
           <form className="admin-login-card" onSubmit={handleAdminLogin}>
             <div className="admin-login-header">
               <div className="admin-login-icon">B</div>
@@ -1236,9 +1260,6 @@ export default function AdminPage() {
   return (
     <div className="admin-layout">
       {adminTopbar}
-
-      {error && <p className="error-banner">{error}</p>}
-      {notice && <p className="status-banner">{notice}</p>}
 
       <nav className="admin-tabs">
         <button
@@ -2058,6 +2079,18 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+      {toastMessages.length > 0 && (
+        <div className="admin-toast-stack" role="status" aria-live="polite">
+          {toastMessages.map((toast) => (
+            <article
+              key={toast.id}
+              className={`admin-toast ${toast.kind === "error" ? "error" : "success"}`}
+            >
+              {toast.text}
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
