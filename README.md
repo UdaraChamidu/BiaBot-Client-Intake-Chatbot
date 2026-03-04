@@ -1,5 +1,9 @@
 # BiaBot Client Intake Chatbot (MVP)
 
+<img width="1592" height="747" alt="image" src="https://github.com/user-attachments/assets/17f8a769-2c3a-4332-a59a-05545ebc3923" />
+
+<img width="1457" height="752" alt="image" src="https://github.com/user-attachments/assets/80909b1b-259f-4764-9e72-7b8faa30b320" />
+
 Implementation aligned to `BiaBot_Subscription.docx`:
 
 - FastAPI backend
