@@ -1,0 +1,12 @@
+Some thoughts/questions.
+1. I sent concepts for visual identity but if you can tell me design specifications, I can design the icons. Give me a few days and I will have for you.
+2. Can we make the font Causten
+3. As far as language, i can write it to be more aligned with our brand. Or does that change when we input the OpenAI/Anthropic AI?
+4. Instead of:
+“Please share your client code.”
+Try:
+“Let’s get you into your workspace. Enter your client code below.”
+Instead of:
+“I could not verify that client code.”
+Try:
+“That code doesn’t match our records. Double-check it or contact your BiAgent.”

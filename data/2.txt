@@ -1,0 +1,11 @@
+Okay, some questions/feedback
+
+
+
+1. I will provide branding finalization as soon as I get the custom graphics and color palettes
+2. Some clients are fast thinking, can there be a voice recognition that captures and transcribes voice on questions that require typing the response.
+3. With "desired outcome", I just want to make sure that once an API is integrated, some of these questions will take the response and ask deeper questions if necessary because the goal is to reduce the bottleneck. Usually with the form, a client does not give us enough information to proceed with the project, which prevents us from moving. With a bot, we can gather more information and hopefully have a full summary scope to provide to the production team.
+4. Target audience, can we add options they can just tap on (instead of type) and if the option isnt available, they choose 'other' and then are prompted to type? I hope to make the journey faster for them
+5. I wonder, do we need to have 'to confirm' for every quesitons? I feel that slows things down. maybe best to take it out.
+6. What if a user wants to change a response?
+7.Can we add a calendar popup or option for due date so they select from calendar OR type in mm/DD/YY

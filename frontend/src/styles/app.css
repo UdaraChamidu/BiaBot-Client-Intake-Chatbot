@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Orbitron:wght@500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Causten:wght@400;500;700&display=swap");
 
 /* ───────────────────────────────────────────────
    THEME VARIABLES — DARK (default)
@@ -170,7 +170,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-family: "Causten", sans-serif;
   background:
     linear-gradient(165deg, rgba(3, 9, 20, 0.78), rgba(4, 10, 23, 0.8)),
     url("/background_desktop.png");
@@ -234,7 +234,7 @@ body {
 
 .brand h1 {
   margin: 0;
-  font-family: "Orbitron", "Space Grotesk", sans-serif;
+  font-family: "Causten", sans-serif;
   letter-spacing: 0.04em;
   font-size: clamp(1.5rem, 2.7vw, 2.2rem);
 }
@@ -879,7 +879,7 @@ select:focus {
 
 .chat-topbar h2 {
   margin: 2px 0 0;
-  font-family: "Orbitron", sans-serif;
+  font-family: "Causten", sans-serif;
   font-size: 0.95rem;
   letter-spacing: 0.02em;
 }
@@ -1037,7 +1037,7 @@ select:focus {
 .profile-block p {
   margin: 0;
   color: var(--text-secondary);
-  font-family: Consolas, "Courier New", monospace;
+  font-family: "Causten", sans-serif;
   font-size: 0.82rem;
   line-height: 1.5;
 }
@@ -1127,7 +1127,7 @@ select:focus {
 
 .chat-empty-state h3 {
   margin: 0;
-  font-family: "Orbitron", sans-serif;
+  font-family: "Causten", sans-serif;
   font-size: 1.2rem;
   color: var(--text);
 }
@@ -1491,7 +1491,7 @@ select:focus {
 
 .admin-topbar h2 {
   margin: 2px 0 0;
-  font-family: "Orbitron", sans-serif;
+  font-family: "Causten", sans-serif;
   font-size: 0.95rem;
   letter-spacing: 0.02em;
 }
@@ -1548,7 +1548,7 @@ select:focus {
   background: linear-gradient(135deg, var(--primary), var(--cyan));
   display: grid;
   place-items: center;
-  font-family: "Orbitron", sans-serif;
+  font-family: "Causten", sans-serif;
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-on-primary);
@@ -1557,7 +1557,7 @@ select:focus {
 
 .admin-login-card h2 {
   margin: 0;
-  font-family: "Orbitron", "Space Grotesk", sans-serif;
+  font-family: "Causten", sans-serif;
   letter-spacing: 0.02em;
   font-size: clamp(1.5rem, 3vw, 1.9rem);
 }
@@ -1791,7 +1791,7 @@ select:focus {
 
 .dashboard-kpi-value {
   margin: 0;
-  font-family: "Orbitron", sans-serif;
+  font-family: "Causten", sans-serif;
   font-size: clamp(1.35rem, 2.3vw, 1.8rem);
   color: var(--text);
 }
@@ -2120,7 +2120,7 @@ select:focus {
 
 .client-profile-block p {
   margin: 0;
-  font-family: Consolas, "Courier New", monospace;
+  font-family: "Causten", sans-serif;
   font-size: 0.82rem;
   line-height: 1.45;
   color: var(--text-secondary);
@@ -2330,7 +2330,7 @@ select:focus {
 }
 
 .credit-menu-row .admin-field:first-child input {
-  font-family: Consolas, "Courier New", monospace;
+  font-family: "Causten", sans-serif;
 }
 
 .logs-panel {
