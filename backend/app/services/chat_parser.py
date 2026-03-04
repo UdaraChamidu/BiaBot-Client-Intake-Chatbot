@@ -111,25 +111,53 @@ def parse_links_and_files(input_text: str) -> list[str]:
 
 def parse_date_input(input_text: str) -> str | None:
     cleaned = re.sub(r"\b(\d+)(st|nd|rd|th)\b", r"\1", input_text, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"[.,]+$", "", cleaned).strip()
     if not cleaned:
         return None
 
-    lowered = cleaned.lower()
+    lowered = re.sub(r"\s+", " ", cleaned.lower()).strip()
     today = date.today()
     if lowered in {"today"}:
         return today.isoformat()
     if lowered in {"tomorrow", "tmr", "tmrw"}:
         return (today + timedelta(days=1)).isoformat()
+    if lowered in {"day after tomorrow"}:
+        return (today + timedelta(days=2)).isoformat()
     if lowered in {"next week"}:
         return (today + timedelta(days=7)).isoformat()
 
-    relative_days = re.fullmatch(r"(?:in\s+)?(\d+)\s+days?(?:\s+from\s+now)?", lowered)
+    relative_days = re.fullmatch(
+        r"(?:in\s+)?(\d+)\s+days?(?:\s+from\s+(?:now|today))?",
+        lowered,
+    )
     if relative_days:
         return (today + timedelta(days=int(relative_days.group(1)))).isoformat()
 
-    relative_weeks = re.fullmatch(r"(?:in\s+)?(\d+)\s+weeks?(?:\s+from\s+now)?", lowered)
+    relative_weeks = re.fullmatch(
+        r"(?:in\s+)?(\d+)\s+weeks?(?:\s+from\s+(?:now|today))?",
+        lowered,
+    )
     if relative_weeks:
         return (today + timedelta(days=7 * int(relative_weeks.group(1)))).isoformat()
+
+    relative_months = re.fullmatch(
+        r"(?:in\s+)?(\d+)\s+months?(?:\s+from\s+(?:now|today))?",
+        lowered,
+    )
+    if relative_months:
+        months = int(relative_months.group(1))
+        year = today.year
+        month = today.month + months
+        while month > 12:
+            year += 1
+            month -= 12
+        day = today.day
+        while day > 0:
+            try:
+                return date(year, month, day).isoformat()
+            except ValueError:
+                day -= 1
+        return None
 
     weekday_map = {
         "monday": 0,
@@ -160,8 +188,28 @@ def parse_date_input(input_text: str) -> str | None:
         days_ahead = 7 if days_ahead == 0 else days_ahead
         return (today + timedelta(days=days_ahead)).isoformat()
 
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", cleaned):
-        return cleaned
+    next_month_day = re.fullmatch(
+        r"(\d{1,2})\s*(?:of|on|in)?\s*next\s+months?",
+        lowered,
+    ) or re.fullmatch(
+        r"next\s+months?\s*(?:on|of|in)?\s*(\d{1,2})",
+        lowered,
+    )
+    if next_month_day:
+        day = int(next_month_day.group(1))
+        year = today.year + (1 if today.month == 12 else 0)
+        month = 1 if today.month == 12 else today.month + 1
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            return None
+
+    if re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", cleaned):
+        parts = cleaned.split("-")
+        try:
+            return date(int(parts[0]), int(parts[1]), int(parts[2])).isoformat()
+        except ValueError:
+            return None
 
     for fmt in DATE_FORMATS:
         try:
@@ -309,6 +357,10 @@ def normalize_answer(
 
     if question_type == "date":
         parsed = parse_date_input(raw)
+        if not parsed:
+            candidate = clean_field_prefix(raw, question_id=question_id, question_label=question_label)
+            if candidate != raw:
+                parsed = parse_date_input(candidate)
         if not parsed:
             return {
                 "ok": False,

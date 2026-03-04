@@ -569,7 +569,9 @@ class ChatAgentService:
             needs_clarification = bool(llm_result.get("needs_clarification", False))
 
             if isinstance(value, str) and value in options:
-                if confidence >= LLM_ACCEPT_CONFIDENCE and not needs_clarification:
+                # For service/choice mapping, accept moderate-confidence matches to avoid
+                # excessive "Did you mean...?" prompts. Clarify only when uncertainty remains.
+                if confidence >= ACTION_ACCEPT_CONFIDENCE and not needs_clarification:
                     return value, confidence, None
                 if confidence >= CLARIFY_CONFIDENCE:
                     clarification = llm_result.get("clarification_question") or f'Did you mean "{value}"?'
@@ -581,7 +583,7 @@ class ChatAgentService:
                     return None, confidence, str(clarification)
 
         selected, score = match_option(message, options)
-        if selected and score >= RULE_ACCEPT_CONFIDENCE:
+        if selected and score >= ACTION_ACCEPT_CONFIDENCE:
             return selected, score, None
         if selected and score >= CLARIFY_CONFIDENCE:
             return selected, score, f'Did you mean "{selected}"?'
@@ -629,8 +631,19 @@ class ChatAgentService:
             if candidate["ok"]:
                 confidence = float(llm_result.get("confidence", 0.0))
                 needs_clarification = bool(llm_result.get("needs_clarification", False))
+                is_choice = question.question_type == "choice"
 
-                if confidence >= LLM_ACCEPT_CONFIDENCE and not needs_clarification:
+                # For non-choice questions (text/date), accept parsed values directly.
+                # Clarification prompts are reserved for unclear option mapping.
+                if not is_choice:
+                    return {
+                        "status": "accept",
+                        "value": candidate["value"],
+                        "confidence": confidence,
+                        "source": "llm",
+                    }
+
+                if confidence >= ACTION_ACCEPT_CONFIDENCE and not needs_clarification:
                     return {
                         "status": "accept",
                         "value": candidate["value"],
@@ -660,16 +673,25 @@ class ChatAgentService:
             question_label=question.label,
         )
 
-        if rule_result.get("ok") and float(rule_result.get("confidence", 0.0)) >= RULE_ACCEPT_CONFIDENCE:
-            return {
-                "status": "accept",
-                "value": rule_result.get("normalized_value"),
-                "confidence": float(rule_result.get("confidence", 0.0)),
-                "source": "rule",
-            }
-
         if rule_result.get("ok"):
             confidence = float(rule_result.get("confidence", 0.0))
+            is_choice = question.question_type == "choice"
+
+            if not is_choice:
+                return {
+                    "status": "accept",
+                    "value": rule_result.get("normalized_value"),
+                    "confidence": confidence,
+                    "source": "rule",
+                }
+
+            if confidence >= ACTION_ACCEPT_CONFIDENCE:
+                return {
+                    "status": "accept",
+                    "value": rule_result.get("normalized_value"),
+                    "confidence": confidence,
+                    "source": "rule",
+                }
             if confidence >= CLARIFY_CONFIDENCE:
                 candidate = rule_result.get("normalized_value")
                 return {

@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Causten:wght@400;500;700&display=swap");
+@import url("https://fonts.cdnfonts.com/css/causten");
 
 /* ───────────────────────────────────────────────
    THEME VARIABLES — DARK (default)
@@ -524,6 +524,13 @@ select:focus {
   min-height: 100vh;
   height: 100vh;
   background: transparent;
+}
+
+.chatbot-page,
+.chatbot-page input,
+.chatbot-page textarea,
+.chatbot-page button {
+  font-family: "Causten", sans-serif;
 }
 
 

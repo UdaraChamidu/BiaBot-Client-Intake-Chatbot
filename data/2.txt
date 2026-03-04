@@ -9,3 +9,10 @@ Okay, some questions/feedback
 5. I wonder, do we need to have 'to confirm' for every quesitons? I feel that slows things down. maybe best to take it out.
 6. What if a user wants to change a response?
 7.Can we add a calendar popup or option for due date so they select from calendar OR type in mm/DD/YY
+
+finally, after all questions, i can see it is showing a box. but it is not proper. some parts are missing...
+
+- the client can be seen what they have entered for each question.  no need to show as questions and answers... just show boxes for each and answers given by the user.. . like boxes in client profile...
+- also if chat bot has more questions like chatbot not sure about user inputs or .... those questions also need to show. if user anaswered for them , take those answers as final. otherwise take previous answers as final.
+
+- in admin side add an option to see the full chats of clients (what you think about it ? is it  a good thing or not ?)

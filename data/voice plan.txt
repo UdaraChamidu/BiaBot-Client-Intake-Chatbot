@@ -1,0 +1,44 @@
+Voice Setup Plan (ElevenLabs + Current App)
+
+1. Scope and UX decisions (Day 0)
+- Start with push-to-talk only (not full duplex) to reduce complexity.
+- Add 2 toggles in chat UI: Voice Input and Voice Output.
+- Define behavior: user speaks -> transcript appears -> sent to existing /chat/message -> bot reply can be played as audio.
+
+2. Backend voice layer in FastAPI (Day 1)
+- Create backend/app/services/voice/elevenlabs_service.py for all provider calls.
+- Add routes:
+  - POST /api/v1/voice/token (single-use token generation)
+  - WS /api/v1/voice/stt (frontend audio chunks -> ElevenLabs realtime STT -> transcript events back)
+  - POST /api/v1/voice/tts (text -> streamed audio bytes)
+- Keep ElevenLabs API key only in backend .env.
+
+3. Frontend voice input (STT) in Intake page (Day 2)
+- Add mic button in IntakePage.jsx.
+- Use getUserMedia + MediaRecorder to capture chunks.
+- Stream chunks to backend websocket.
+- Show live transcript preview; on final transcript, call existing submitMessage() path.
+
+4. Frontend voice output (TTS) (Day 2)
+- When bot reply arrives, if Voice Output is enabled, call /voice/tts.
+- Play returned audio via HTML Audio.
+- Add interrupt logic: if user starts recording, stop current playback.
+
+5. Conversation turn control (Day 3)
+- Add turn state machine: idle, recording, processing, speaking.
+- Prevent double-submits while STT finalize is pending.
+- Add timeout/retry handling for dropped WS sessions.
+
+6. Cost and safety controls (Day 3)
+- Add request limits per session/user for STT and TTS.
+- Add max transcript/audio duration caps.
+- Log usage metrics: seconds recorded, chars synthesized, errors.
+
+7. QA and rollout (Day 4)
+- Test matrix: Chrome/Edge/Safari, mic denied, slow network, noisy audio.
+- Feature flag voice (VOICE_ENABLED=true) for staged rollout.
+- Release to internal users first, then all clients.
+
+8. Phase 2 upgrade (optional)
+- Move from push-to-talk to near realtime conversational mode (VAD/barge-in).
+- Add selectable voices and speed settings per client profile.
