@@ -3,35 +3,98 @@
 from typing import Any
 
 from app.models.schemas import IntakeSubmission
+from app.services.flow_definitions import BRANCH_QUESTIONS, CORE_QUESTIONS
 from app.services.openai_service import OpenAIService
+
+UPLOAD_FILES_LABEL = "Any files to attach? Share filenames or links."
+
+
+def _stringify_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        cleaned = [str(item).strip() for item in value if str(item).strip()]
+        return ", ".join(cleaned)
+    if hasattr(value, "isoformat"):
+        try:
+            return str(value.isoformat())
+        except Exception:  # pragma: no cover - defensive guard
+            pass
+    if hasattr(value, "value"):
+        enum_value = getattr(value, "value")
+        return str(enum_value).strip()
+    return str(value).strip()
+
+
+def _resolve_branch_questions(service_type: str) -> list[Any]:
+    direct = BRANCH_QUESTIONS.get(service_type)
+    if direct is not None:
+        return direct
+    normalized_service_type = service_type.strip().lower()
+    for option, questions in BRANCH_QUESTIONS.items():
+        if option.strip().lower() == normalized_service_type:
+            return questions
+    return BRANCH_QUESTIONS.get("Other", [])
+
+
+def _payload_value_for_question(
+    *,
+    question_id: str,
+    payload: IntakeSubmission,
+    client_profile: dict[str, Any],
+) -> str:
+    if question_id == "project_title":
+        return _stringify_value(payload.project_title)
+    if question_id == "goal":
+        return _stringify_value(payload.goal)
+    if question_id == "target_audience":
+        return _stringify_value(payload.target_audience)
+    if question_id == "primary_cta":
+        return _stringify_value(payload.primary_cta)
+    if question_id == "time_sensitivity":
+        return _stringify_value(payload.time_sensitivity)
+    if question_id == "due_date":
+        return _stringify_value(payload.due_date)
+    if question_id == "approver":
+        return _stringify_value(payload.approver) or _stringify_value(client_profile.get("default_approver"))
+    if question_id == "required_elements":
+        return _stringify_value(payload.required_elements)
+    if question_id == "references":
+        return _stringify_value(payload.references)
+    if question_id == "uploaded_files":
+        return _stringify_value(payload.uploaded_files)
+    return _stringify_value(payload.branch_answers.get(question_id))
 
 
 def build_fallback_summary(client_profile: dict[str, Any], payload: IntakeSubmission) -> str:
-    links = payload.references if payload.references else ["None provided"]
-    files = payload.uploaded_files if payload.uploaded_files else ["None"]
-
     lines = [
-        f"Client: {client_profile.get('client_name', 'Unknown')} ({client_profile.get('client_code', '')})",
-        f"Project Title: {payload.project_title}",
-        f"Deliverable: {payload.service_type}",
-        f"Goal: {payload.goal}",
-        f"Audience: {payload.target_audience}",
-        f"CTA: {payload.primary_cta}",
-        f"Due Date: {payload.due_date.isoformat()}",
-        f"Urgency: {payload.time_sensitivity.value}",
-        f"Approver: {payload.approver or client_profile.get('default_approver', 'Not specified')}",
-        f"Required Elements: {payload.required_elements or 'None specified'}",
-        f"Links: {', '.join(links)}",
-        f"Files: {', '.join(files)}",
+        "**Client Name:** " + _stringify_value(client_profile.get("client_name")),
+        "**Client Code:** " + _stringify_value(client_profile.get("client_code")),
+        "**Service Type:** " + _stringify_value(payload.service_type),
     ]
 
-    if payload.branch_answers:
-        lines.append("Branch Details:")
-        for key, value in payload.branch_answers.items():
-            lines.append(f"- {key}: {value}")
+    for question in CORE_QUESTIONS:
+        answer_text = _payload_value_for_question(
+            question_id=question.id,
+            payload=payload,
+            client_profile=client_profile,
+        )
+        lines.append(f"**{question.label}:** {answer_text}".rstrip())
 
-    if payload.notes:
-        lines.append(f"Notes: {payload.notes}")
+    for question in _resolve_branch_questions(payload.service_type):
+        answer_text = _payload_value_for_question(
+            question_id=question.id,
+            payload=payload,
+            client_profile=client_profile,
+        )
+        lines.append(f"**{question.label}:** {answer_text}".rstrip())
+
+    uploaded_files_text = _payload_value_for_question(
+        question_id="uploaded_files",
+        payload=payload,
+        client_profile=client_profile,
+    )
+    lines.append(f"**{UPLOAD_FILES_LABEL}:** {uploaded_files_text}".rstrip())
 
     return "\n".join(lines)
 
@@ -42,9 +105,7 @@ def generate_summary(
     payload: IntakeSubmission,
     openai_service: OpenAIService,
 ) -> str:
-    fallback = build_fallback_summary(client_profile, payload)
-    return openai_service.summarize_intake(
-        client_profile=client_profile,
-        intake_payload=payload.model_dump(mode="json"),
-        fallback_summary=fallback,
-    )
+    # Product requirement: each asked question must appear as an independent summary key.
+    # Keep summary deterministic so keys are never merged or omitted.
+    _ = openai_service
+    return build_fallback_summary(client_profile, payload)

@@ -1321,6 +1321,112 @@ select:focus {
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
+.summary-test-shortcut {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 4px 0;
+}
+
+.summary-test-shortcut .ghost-btn {
+  padding: 6px 12px;
+}
+
+.summary-preview-note {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  padding: 8px 10px;
+}
+
+.summary-structured-editor {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--chat-window-bg);
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.summary-editor-guide {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.summary-structured-list {
+  display: grid;
+  gap: 8px;
+}
+
+.summary-editor-static-line {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.summary-editor-rule {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 2px 0;
+}
+
+.summary-editor-gap {
+  height: 4px;
+}
+
+.summary-field-row {
+  display: grid;
+  grid-template-columns: minmax(132px, 220px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-soft);
+  padding: 10px;
+}
+
+.summary-field-key {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  padding-top: 8px;
+}
+
+.summary-field-value {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.summary-field-value:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+  outline: none;
+}
+
+.summary-field-value:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .summary-editor-actions {
   display: flex;
   gap: 8px;
@@ -2686,6 +2792,19 @@ tbody tr:hover {
 
   .summary-editor-actions .primary-btn,
   .summary-editor-actions .ghost-btn {
+    width: 100%;
+  }
+
+  .summary-field-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .summary-field-key {
+    padding-top: 0;
+  }
+
+  .summary-test-shortcut .ghost-btn {
     width: 100%;
   }
 

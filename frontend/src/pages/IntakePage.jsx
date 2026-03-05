@@ -1,10 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import { sendChatMessage } from "../services/intakeService";
 import { getStoredTheme, toggleTheme } from "../utils/theme";
 
 const BOT_AVATAR_URL = "/avatar.png";
+const TEST_SUMMARY_TEMPLATE = `**Client Name:** Udara Herath
+**Client Code:** C0001
+**Service Type:** Press Release
+**Project Title:** Title 01
+**Goal (desired outcome):** Generate media coverage and qualified awareness.
+**Target Audience:** B2B decision makers
+**Primary CTA:** Visit the landing page
+**Time Sensitivity:** Soon
+**Due Date:** 2026-02-03
+**Approver:** 
+**Required elements (logos, disclaimers, QR codes, etc.):** Product specs, pricing table, legal disclaimer
+**References / links (comma-separated):** https://example.com/launch, https://example.com/media-kit
+**Announcement summary:** Product launch in Colombo for enterprise users.
+**Quotes needed?:** Yes
+**Boilerplate inclusion:** Yes
+**Media targets:** Regional tech and business outlets
+**Assets needed:** 
+**Any files to attach? Share filenames or links.:** `;
 
 function messageId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -39,6 +57,96 @@ function displayText(value, fallback = "Not set") {
   return text || fallback;
 }
 
+const SUMMARY_PAIR_PATTERNS = [
+  {
+    style: "bold_colon_inside",
+    regex: /^(\s*(?:[-*]\s+)?)\*\*(.+?):\*\*\s*(.*)$/,
+  },
+  {
+    style: "bold_colon_outside",
+    regex: /^(\s*(?:[-*]\s+)?)\*\*(.+?)\*\*\s*:\s*(.*)$/,
+  },
+  {
+    style: "plain",
+    regex: /^(\s*(?:[-*]\s+)?)([^:\n]+?):\s*(.*)$/,
+  },
+];
+
+function isLikelySummaryKey(key) {
+  const cleaned = String(key ?? "").trim();
+  if (!cleaned || cleaned.length > 64) {
+    return false;
+  }
+  if (/https?:\/\//i.test(cleaned) || /^[\W_]+$/.test(cleaned)) {
+    return false;
+  }
+  const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+  if (wordCount > 8) {
+    return false;
+  }
+  return /^[A-Za-z0-9][A-Za-z0-9()\/&+,_.'? -]*$/.test(cleaned);
+}
+
+function parseSummaryLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed === "---" || /^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+
+  for (const pattern of SUMMARY_PAIR_PATTERNS) {
+    const match = line.match(pattern.regex);
+    if (!match) {
+      continue;
+    }
+    const key = String(match[2] ?? "").trim();
+    if (["http", "https"].includes(key.toLowerCase())) {
+      continue;
+    }
+    if (!isLikelySummaryKey(key)) {
+      continue;
+    }
+    return {
+      type: "pair",
+      style: pattern.style,
+      leading: match[1] ?? "",
+      key,
+      value: match[3] ?? "",
+    };
+  }
+  return null;
+}
+
+function parseSummarySegments(summaryText) {
+  const normalized = String(summaryText ?? "").replace(/\r\n/g, "\n");
+  const segments = normalized.split("\n").map((line) => {
+    const pair = parseSummaryLine(line);
+    if (pair) {
+      return pair;
+    }
+    return { type: "text", text: line };
+  });
+  const editableCount = segments.filter((segment) => segment.type === "pair").length;
+  return { segments, editableCount };
+}
+
+function stringifySummarySegments(segments) {
+  return segments
+    .map((segment) => {
+      if (segment.type !== "pair") {
+        return segment.text;
+      }
+      const valuePart = segment.value ? ` ${segment.value}` : "";
+      if (segment.style === "bold_colon_inside") {
+        return `${segment.leading}**${segment.key}:**${valuePart}`;
+      }
+      if (segment.style === "bold_colon_outside") {
+        return `${segment.leading}**${segment.key}**:${valuePart}`;
+      }
+      return `${segment.leading}${segment.key}:${valuePart}`;
+    })
+    .join("\n");
+}
+
 export default function IntakePage() {
   const [messages, setMessages] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
@@ -60,10 +168,13 @@ export default function IntakePage() {
   const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
   const [summaryDraft, setSummaryDraft] = useState("");
   const [summarySource, setSummarySource] = useState("");
+  const [isSummaryPreviewMode, setIsSummaryPreviewMode] = useState(false);
 
   const tailRef = useRef(null);
   const welcomeTimeoutRef = useRef(null);
   const lastWelcomedClientCodeRef = useRef("");
+  const parsedSummary = useMemo(() => parseSummarySegments(summaryDraft), [summaryDraft]);
+  const hasStructuredSummary = parsedSummary.editableCount > 0;
 
   function pushBotMessage(text) {
     setMessages((prev) => [...prev, makeMessage("bot", text)]);
@@ -86,9 +197,11 @@ export default function IntakePage() {
     setSuggestions(nextSuggestions);
     setProfile(nextProfile);
     if (response?.ready_to_submit && typeof response?.summary === "string") {
+      setIsSummaryPreviewMode(false);
       setSummarySource(response.summary);
       setSummaryDraft(response.summary);
     } else if (nextPhase !== "await_confirmation") {
+      setIsSummaryPreviewMode(false);
       setSummarySource("");
       setSummaryDraft("");
     }
@@ -124,6 +237,7 @@ export default function IntakePage() {
   async function startNewChat() {
     setIsProfilePanelOpen(false);
     setInputValue("");
+    setIsSummaryPreviewMode(false);
     setIsBusy(true);
     try {
       const response = await sendChatMessage({
@@ -183,6 +297,11 @@ export default function IntakePage() {
     if (!summaryDraft.trim() || phase !== "await_confirmation" || isBusy) {
       return;
     }
+    if (isSummaryPreviewMode) {
+      setSummarySource(summaryDraft);
+      pushBotMessage("Preview summary updated locally.");
+      return;
+    }
     if (summaryDraft.trim() === summarySource.trim()) {
       return;
     }
@@ -193,6 +312,10 @@ export default function IntakePage() {
     if (phase !== "await_confirmation" || isBusy) {
       return;
     }
+    if (isSummaryPreviewMode) {
+      pushBotMessage("Preview mode is active. Submission is disabled. Click Restart Intake to return to live flow.");
+      return;
+    }
     if (summaryDraft.trim() && summaryDraft.trim() !== summarySource.trim()) {
       const saved = await submitMessage(`EDIT_SUMMARY::${summaryDraft.trim()}`);
       if (!saved) {
@@ -200,6 +323,41 @@ export default function IntakePage() {
       }
     }
     await submitMessage("Submit");
+  }
+
+  function loadSummaryPreview() {
+    if (isBusy) {
+      return;
+    }
+    setIsSummaryPreviewMode(true);
+    setSummarySource(TEST_SUMMARY_TEMPLATE);
+    setSummaryDraft(TEST_SUMMARY_TEMPLATE);
+    setSuggestions([]);
+    setPhase("await_confirmation");
+    pushBotMessage("Loaded test summary preview. Keys are locked and values are editable.");
+  }
+
+  async function handleRestartIntake() {
+    if (isSummaryPreviewMode) {
+      setIsSummaryPreviewMode(false);
+      await startNewChat();
+      return;
+    }
+    await submitMessage("Restart");
+  }
+
+  function handleSummaryValueChange(segmentIndex, nextValue) {
+    setSummaryDraft((previousDraft) => {
+      const parsed = parseSummarySegments(previousDraft);
+      const targetSegment = parsed.segments[segmentIndex];
+      if (!targetSegment || targetSegment.type !== "pair") {
+        return previousDraft;
+      }
+      const nextSegments = parsed.segments.map((segment, index) =>
+        index === segmentIndex ? { ...segment, value: nextValue } : segment
+      );
+      return stringifySummarySegments(nextSegments);
+    });
   }
 
   function handleThemeToggle() {
@@ -650,6 +808,14 @@ export default function IntakePage() {
             ))}
           </div>
         )}
+        {import.meta.env.DEV && phase !== "await_confirmation" && (
+          <div className="summary-test-shortcut">
+            <button type="button" className="ghost-btn" onClick={loadSummaryPreview} disabled={isBusy}>
+              Load Test Summary UI
+            </button>
+            <p className="muted-text">Dev shortcut: opens Final Review without completing every question.</p>
+          </div>
+        )}
 
         {phase === "await_confirmation" && (
           <section className="summary-editor-card">
@@ -658,15 +824,61 @@ export default function IntakePage() {
               <h3>Mission Summary</h3>
             </div>
             <p className="muted-text">
-              Edit anything you want before sending this request to Bianomics.
+              Review your details before sending this request to Bianomics.
             </p>
-            <textarea
-              className="summary-editor-textarea"
-              value={summaryDraft}
-              onChange={(event) => setSummaryDraft(event.target.value)}
-              placeholder="Your summary will appear here."
-              disabled={isBusy}
-            />
+            {isSummaryPreviewMode && (
+              <p className="summary-preview-note">
+                Test mode is active. Changes are local and will not be sent to Bianomics.
+              </p>
+            )}
+            {hasStructuredSummary ? (
+              <div className="summary-structured-editor">
+                <p className="summary-editor-guide">Field names are locked. Edit only the values.</p>
+                <div className="summary-structured-list">
+                  {parsedSummary.segments.map((segment, index) => {
+                    if (segment.type === "pair") {
+                      const fieldId = `summary-field-${index}`;
+                      return (
+                        <div className="summary-field-row" key={fieldId}>
+                          <label className="summary-field-key" htmlFor={fieldId}>
+                            {segment.key}
+                          </label>
+                          <textarea
+                            id={fieldId}
+                            className="summary-field-value"
+                            value={segment.value}
+                            rows={1}
+                            onChange={(event) => handleSummaryValueChange(index, event.target.value)}
+                            disabled={isBusy}
+                          />
+                        </div>
+                      );
+                    }
+
+                    const trimmedText = segment.text.trim();
+                    if (!trimmedText) {
+                      return <div className="summary-editor-gap" key={`summary-gap-${index}`} aria-hidden="true" />;
+                    }
+                    if (trimmedText === "---") {
+                      return <hr className="summary-editor-rule" key={`summary-rule-${index}`} />;
+                    }
+                    return (
+                      <p className="summary-editor-static-line" key={`summary-text-${index}`}>
+                        {segment.text}
+                      </p>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <textarea
+                className="summary-editor-textarea"
+                value={summaryDraft}
+                onChange={(event) => setSummaryDraft(event.target.value)}
+                placeholder="Your summary will appear here."
+                disabled={isBusy}
+              />
+            )}
             <div className="summary-editor-actions">
               <button
                 type="button"
@@ -687,7 +899,7 @@ export default function IntakePage() {
               <button
                 type="button"
                 className="ghost-btn"
-                onClick={() => submitMessage("Restart")}
+                onClick={handleRestartIntake}
                 disabled={isBusy}
               >
                 Restart Intake
