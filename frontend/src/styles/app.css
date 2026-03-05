@@ -792,6 +792,30 @@ select:focus {
   transition: margin-left var(--transition-base), padding var(--transition-base);
 }
 
+.chat-main.review-mode {
+  grid-template-rows: auto minmax(150px, 0.36fr) auto minmax(230px, 0.64fr) auto;
+  gap: 8px;
+}
+
+.chat-main.review-mode .chat-window {
+  min-height: 150px;
+  max-height: 34vh;
+}
+
+.chat-main.review-mode .summary-editor-card {
+  gap: 8px;
+  padding: 12px;
+}
+
+.chat-main.review-mode .summary-structured-editor {
+  max-height: 280px;
+}
+
+.chat-main.review-mode .summary-editor-textarea {
+  min-height: 170px;
+  max-height: 280px;
+}
+
 /* ───────────────────────────────────────────────
    CHAT TOPBAR / NAVBAR
    ─────────────────────────────────────────────── */
@@ -2719,6 +2743,26 @@ tbody tr:hover {
 
   .chat-main {
     padding: 10px;
+  }
+
+  .chat-main.review-mode {
+    grid-template-rows: auto minmax(120px, 0.3fr) auto minmax(210px, 0.7fr) auto;
+    gap: 6px;
+  }
+
+  .chat-main.review-mode .chat-window {
+    min-height: 120px;
+    max-height: 24vh;
+    padding: 10px;
+  }
+
+  .chat-main.review-mode .summary-structured-editor {
+    max-height: 220px;
+  }
+
+  .chat-main.review-mode .summary-editor-textarea {
+    min-height: 140px;
+    max-height: 220px;
   }
 
   .chat-topbar {

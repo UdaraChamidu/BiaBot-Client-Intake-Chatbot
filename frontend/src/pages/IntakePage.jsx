@@ -679,7 +679,7 @@ export default function IntakePage() {
         )}
       </aside>
 
-      <div className="chat-main">
+      <div className={`chat-main ${phase === "await_confirmation" ? "review-mode" : ""}`}>
         <div className="chat-topbar">
           <div className="chat-topbar-left">
             <button
