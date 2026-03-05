@@ -271,72 +271,43 @@ class ChatAgentService:
 
         options = self._service_options(profile)
         if session.pending_field_id == "service_type":
-            confirmation_text = message.strip()
-            action = self._control_action(
-                phase="service_confirmation",
-                message=confirmation_text,
-                allowed_actions=["confirm", "reject"],
-            )
-            if action == "confirm" and isinstance(session.pending_value, str):
-                selected_service = session.pending_value
-                self._clear_pending_clarification(session)
-                return self._activate_service_type(
-                    session=session,
-                    profile=profile,
-                    selected=selected_service,
-                    options=options,
-                )
-            if action == "reject":
-                self._clear_pending_clarification(session)
-                return self._response(
-                    session,
-                    self._assistant_text(
-                        fallback=self._service_retry_fallback(session, options),
-                        phase=session.phase,
-                        context={
-                            "event": "service_retry_after_reject",
-                            "service_options": options,
-                            "retry_count": session.service_attempts,
-                        },
-                    ),
-                    suggestions=options,
-                    profile=profile,
-                )
-            # Treat as corrected service input rather than yes/no.
+            # Older sessions may still carry a pending clarification flag.
+            # Clear it and treat the latest user text as the source of truth.
             self._clear_pending_clarification(session)
 
-        selected, score, clarification = self._hybrid_match_option(
+        selected, score, guidance = self._hybrid_match_option(
             message=message,
             options=options,
             field_id="service_type",
             field_label="Service Type",
             context={"client_name": profile.get("client_name")},
         )
-        if clarification:
-            if selected:
-                self._set_pending_clarification(
-                    session,
-                    field_id="service_type",
-                    value=selected,
-                    confidence=score,
-                    question_text=clarification,
-                )
+
+        if selected and score >= CLARIFY_CONFIDENCE:
+            return self._activate_service_type(
+                session=session,
+                profile=profile,
+                selected=selected,
+                options=options,
+            )
+
+        if guidance and not selected:
             return self._response(
                 session,
                 self._assistant_text(
-                    fallback=clarification,
+                    fallback=guidance,
                     phase=session.phase,
                     context={
-                        "event": "service_confirm_candidate",
+                        "event": "service_retry_guidance",
                         "service_options": options,
                         "retry_count": session.service_attempts,
                     },
                 ),
-                suggestions=["Yes", "No"] if selected else options,
+                suggestions=options,
                 profile=profile,
             )
 
-        if not selected or score < CLARIFY_CONFIDENCE:
+        if not selected:
             session.service_attempts += 1
             return self._response(
                 session,
@@ -384,13 +355,8 @@ class ChatAgentService:
             return self._advance_after_answer(session=session, profile=profile)
 
         if session.pending_field_id == question.id:
-            clarification_response = self._resolve_pending_clarification(
-                session=session,
-                question=question,
-                message=message,
-            )
-            if clarification_response is not None:
-                return clarification_response
+            # Treat new user input as corrected input and avoid confirmation loops.
+            self._clear_pending_clarification(session)
 
         extraction = self._hybrid_extract_question_answer(
             session=session,
@@ -399,29 +365,19 @@ class ChatAgentService:
         )
 
         if extraction["status"] == "clarify":
-            self._set_pending_clarification(
-                session,
-                field_id=question.id,
-                value=extraction.get("value"),
-                confidence=float(extraction.get("confidence", 0.0)),
-                question_text=extraction.get("clarification_question"),
-            )
-            return self._response(
-                session,
-                self._assistant_text(
-                    fallback=extraction.get("clarification_question")
-                    or f"Did you mean: {extraction.get('value')}?",
-                    phase=session.phase,
-                    context={
-                        "question": question.label,
-                        "candidate_value": extraction.get("value"),
-                        "confidence": extraction.get("confidence"),
-                    },
-                ),
-                suggestions=["Yes", "No"],
-                profile=profile,
-                service_type=session.service_type,
-            )
+            # Confirmation prompts are intentionally suppressed.
+            # If a candidate value exists, accept it directly.
+            if extraction.get("value") is not None:
+                extraction = {
+                    "status": "accept",
+                    "value": extraction.get("value"),
+                }
+            else:
+                extraction = {
+                    "status": "reject",
+                    "message": extraction.get("clarification_question") or "Could you rephrase that answer?",
+                    "options": self._question_suggestions(question),
+                }
 
         if extraction["status"] != "accept":
             return self._response(
@@ -569,13 +525,8 @@ class ChatAgentService:
             needs_clarification = bool(llm_result.get("needs_clarification", False))
 
             if isinstance(value, str) and value in options:
-                # For service/choice mapping, accept moderate-confidence matches to avoid
-                # excessive "Did you mean...?" prompts. Clarify only when uncertainty remains.
-                if confidence >= ACTION_ACCEPT_CONFIDENCE and not needs_clarification:
-                    return value, confidence, None
                 if confidence >= CLARIFY_CONFIDENCE:
-                    clarification = llm_result.get("clarification_question") or f'Did you mean "{value}"?'
-                    return value, confidence, clarification
+                    return value, confidence, None
 
             if needs_clarification:
                 clarification = llm_result.get("clarification_question")
@@ -583,10 +534,8 @@ class ChatAgentService:
                     return None, confidence, str(clarification)
 
         selected, score = match_option(message, options)
-        if selected and score >= ACTION_ACCEPT_CONFIDENCE:
-            return selected, score, None
         if selected and score >= CLARIFY_CONFIDENCE:
-            return selected, score, f'Did you mean "{selected}"?'
+            return selected, score, None
         return None, 0.0, None
 
     def _hybrid_extract_question_answer(
@@ -612,19 +561,23 @@ class ChatAgentService:
         )
 
         if llm_result and llm_result.get("off_topic"):
-            redirect_text = llm_result.get("assistant_reply")
-            if not isinstance(redirect_text, str) or not redirect_text.strip():
-                redirect_text = self.openai_service.generate_redirect_reply(
-                    user_message=message,
-                    question_label=question.label,
-                    question_options=question.options or [],
-                )
-            return {
-                "status": "reject",
-                "message": redirect_text
-                or f"Let us continue with {question.label}. Could you share that now?",
-                "options": self._question_suggestions(question),
-            }
+            # LLM off-topic classification can be noisy for free-form text/date answers.
+            # Keep strict redirect behavior only for choice questions.
+            if question.question_type == "choice":
+                redirect_text = llm_result.get("assistant_reply")
+                if not isinstance(redirect_text, str) or not redirect_text.strip():
+                    redirect_text = self.openai_service.generate_redirect_reply(
+                        user_message=message,
+                        question_label=question.label,
+                        question_options=question.options or [],
+                    )
+                return {
+                    "status": "reject",
+                    "message": redirect_text
+                    or f"Let us continue with {question.label}. Could you share that now?",
+                    "options": self._question_suggestions(question),
+                }
+            llm_result = None
 
         if llm_result and llm_result.get("ok"):
             candidate = self._normalize_candidate_value(question, llm_result.get("value"))
@@ -643,24 +596,11 @@ class ChatAgentService:
                         "source": "llm",
                     }
 
-                if confidence >= ACTION_ACCEPT_CONFIDENCE and not needs_clarification:
+                if confidence >= CLARIFY_CONFIDENCE or needs_clarification:
                     return {
                         "status": "accept",
                         "value": candidate["value"],
                         "confidence": confidence,
-                        "source": "llm",
-                    }
-
-                if confidence >= CLARIFY_CONFIDENCE or needs_clarification:
-                    clarification = llm_result.get("clarification_question") or self._default_clarification_prompt(
-                        question=question,
-                        candidate_value=candidate["value"],
-                    )
-                    return {
-                        "status": "clarify",
-                        "value": candidate["value"],
-                        "confidence": confidence,
-                        "clarification_question": clarification,
                         "source": "llm",
                     }
 
@@ -693,15 +633,10 @@ class ChatAgentService:
                     "source": "rule",
                 }
             if confidence >= CLARIFY_CONFIDENCE:
-                candidate = rule_result.get("normalized_value")
                 return {
-                    "status": "clarify",
-                    "value": candidate,
+                    "status": "accept",
+                    "value": rule_result.get("normalized_value"),
                     "confidence": confidence,
-                    "clarification_question": self._default_clarification_prompt(
-                        question=question,
-                        candidate_value=candidate,
-                    ),
                     "source": "rule",
                 }
 
@@ -914,9 +849,24 @@ class ChatAgentService:
                 payload=payload,
                 openai_service=self.openai_service,
             )
+            payload_for_monday = payload.model_dump(mode="json")
+            captured_answers: dict[str, Any] = {}
+            for key, value in session.answers.items():
+                if isinstance(value, list):
+                    captured_answers[key] = [str(item).strip() for item in value if str(item).strip()]
+                elif isinstance(value, str):
+                    captured_answers[key] = value.strip()
+                elif value is None:
+                    captured_answers[key] = ""
+                else:
+                    captured_answers[key] = value
+            payload_for_store = {
+                **payload_for_monday,
+                "captured_answers": captured_answers,
+            }
             monday_result = self.monday_service.create_item(
                 client_profile=profile,
-                payload=payload.model_dump(mode="json"),
+                payload=payload_for_monday,
                 summary=summary,
             )
             log = self.store.create_request_log(
@@ -925,7 +875,7 @@ class ChatAgentService:
                 service_type=payload.service_type,
                 project_title=payload.project_title,
                 summary=summary,
-                payload=payload.model_dump(mode="json"),
+                payload=payload_for_store,
                 monday_item_id=monday_result.item_id,
             )
             try:

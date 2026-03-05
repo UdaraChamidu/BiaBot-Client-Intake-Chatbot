@@ -167,9 +167,27 @@ def submit_intake(
         payload.approver = profile.get("default_approver")
 
     summary = generate_summary(client_profile=profile, payload=payload, openai_service=openai_service)
+    payload_for_monday = payload.model_dump(mode="json")
+    payload_for_store = {
+        **payload_for_monday,
+        "captured_answers": {
+            "project_title": payload.project_title,
+            "goal": payload.goal,
+            "target_audience": payload.target_audience,
+            "primary_cta": payload.primary_cta,
+            "time_sensitivity": payload.time_sensitivity,
+            "due_date": payload.due_date.isoformat(),
+            "approver": payload.approver or "",
+            "required_elements": payload.required_elements or "",
+            "references": payload.references,
+            "uploaded_files": payload.uploaded_files,
+            "notes": payload.notes or "",
+            **(payload.branch_answers or {}),
+        },
+    }
     monday_result = monday_service.create_item(
         client_profile=profile,
-        payload=payload.model_dump(mode="json"),
+        payload=payload_for_monday,
         summary=summary,
     )
 
@@ -179,7 +197,7 @@ def submit_intake(
         service_type=payload.service_type,
         project_title=payload.project_title,
         summary=summary,
-        payload=payload.model_dump(mode="json"),
+        payload=payload_for_store,
         monday_item_id=monday_result.item_id,
     )
     try:

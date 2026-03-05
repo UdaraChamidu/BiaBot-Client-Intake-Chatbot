@@ -246,6 +246,104 @@ function formatRelativeTime(value) {
   return `${diffDay}d ago`;
 }
 
+function formatSubmissionFieldLabel(fieldKey) {
+  const raw = String(fieldKey ?? "").trim();
+  if (!raw) {
+    return "Field";
+  }
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatSubmissionAnswerValue(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+    return parts.join(", ");
+  }
+  if (typeof value === "object") {
+    const parts = Object.entries(value)
+      .map(([key, nested]) => {
+        const nestedText = formatSubmissionAnswerValue(nested);
+        if (!nestedText) {
+          return "";
+        }
+        return `${formatSubmissionFieldLabel(key)}: ${nestedText}`;
+      })
+      .filter(Boolean);
+    return parts.join(" | ");
+  }
+  return String(value).trim();
+}
+
+function buildSubmissionAnswerRows(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return [];
+  }
+
+  const rows = [];
+  const seen = new Set();
+  const pushRow = (key, label, value) => {
+    const rowKey = String(key ?? "").trim().toLowerCase();
+    if (!rowKey || seen.has(rowKey)) {
+      return;
+    }
+    const text = formatSubmissionAnswerValue(value);
+    if (!text) {
+      return;
+    }
+    seen.add(rowKey);
+    rows.push({
+      id: rowKey,
+      label: label || formatSubmissionFieldLabel(key),
+      value: text,
+    });
+  };
+
+  pushRow("service_type", "Service Type", payload.service_type);
+
+  const capturedAnswers = payload.captured_answers;
+  if (capturedAnswers && typeof capturedAnswers === "object" && !Array.isArray(capturedAnswers)) {
+    for (const [key, value] of Object.entries(capturedAnswers)) {
+      pushRow(key, formatSubmissionFieldLabel(key), value);
+    }
+    return rows;
+  }
+
+  const orderedKeys = [
+    ["project_title", "Project Title"],
+    ["goal", "Goal"],
+    ["target_audience", "Target Audience"],
+    ["primary_cta", "Primary CTA"],
+    ["time_sensitivity", "Time Sensitivity"],
+    ["due_date", "Due Date"],
+    ["approver", "Approver"],
+    ["required_elements", "Required Elements"],
+    ["references", "References / Links"],
+    ["uploaded_files", "Uploaded Files"],
+    ["notes", "Notes"],
+  ];
+  for (const [key, label] of orderedKeys) {
+    pushRow(key, label, payload[key]);
+  }
+
+  const branchAnswers = payload.branch_answers;
+  if (branchAnswers && typeof branchAnswers === "object" && !Array.isArray(branchAnswers)) {
+    for (const [key, value] of Object.entries(branchAnswers)) {
+      pushRow(key, formatSubmissionFieldLabel(key), value);
+    }
+  }
+
+  return rows;
+}
+
 function readBooleanPref(key, fallback) {
   if (typeof window === "undefined") {
     return fallback;
@@ -411,6 +509,28 @@ export default function AdminPage() {
       return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
     });
   }, [logs, logsQuery]);
+
+  const latestAdminLogs = useMemo(() => {
+    const deduped = new Map();
+    for (const log of [...dashboardLogs, ...logs]) {
+      const id = String(log?.id ?? "").trim();
+      if (!id || deduped.has(id)) {
+        continue;
+      }
+      deduped.set(id, log);
+    }
+    return [...deduped.values()].sort((a, b) => (toMs(b.created_at) ?? 0) - (toMs(a.created_at) ?? 0));
+  }, [dashboardLogs, logs]);
+
+  const selectedClientSubmissions = useMemo(() => {
+    const selectedCode = String(selectedProfile?.client_code ?? "").trim().toUpperCase();
+    if (!selectedCode) {
+      return [];
+    }
+    return latestAdminLogs.filter(
+      (log) => String(log.client_code ?? "").trim().toUpperCase() === selectedCode
+    );
+  }, [latestAdminLogs, selectedProfile?.client_code]);
 
   const unreadNotificationCount = useMemo(
     () => notifications.filter((item) => !item.is_read).length,
@@ -962,7 +1082,7 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    if (!isAuthenticated || !adminPassword || !notificationsApiAvailable) {
+    if (!isAuthenticated || !adminPassword) {
       return;
     }
     if (!autoRefreshEnabled) {
@@ -1860,6 +1980,76 @@ export default function AdminPage() {
                             </tbody>
                           </table>
                         </div>
+                      </div>
+
+                      <div className="client-profile-block">
+                        <div className="client-submission-header">
+                          <h4>Submitted Intake Details</h4>
+                          <span className="summary-pill">{selectedClientSubmissions.length}</span>
+                        </div>
+                        <p className="muted-text">
+                          Submission data is loaded from request logs and includes chatbot answers and branch fields.
+                        </p>
+                        {selectedClientSubmissions.length === 0 && (
+                          <p className="muted-text">No submitted intake requests found for this client yet.</p>
+                        )}
+                        {selectedClientSubmissions.length > 0 && (
+                          <div className="client-submission-list">
+                            {selectedClientSubmissions.map((submission, index) => {
+                              const answerRows = buildSubmissionAnswerRows(submission.payload);
+                              return (
+                                <details
+                                  key={submission.id}
+                                  className="client-submission-item"
+                                  open={index === 0}
+                                >
+                                  <summary>
+                                    <span>
+                                      {displayValue(submission.project_title, "Untitled request")} •{" "}
+                                      {displayValue(submission.service_type, "Unknown service")}
+                                    </span>
+                                    <span className="muted-text">
+                                      {toMs(submission.created_at)
+                                        ? new Date(submission.created_at).toLocaleString()
+                                        : "Unknown time"}
+                                    </span>
+                                  </summary>
+                                  <p className="muted-text">
+                                    Monday Item: {displayValue(submission.monday_item_id, "-")}
+                                  </p>
+                                  <div className="table-scroll">
+                                    <table className="credit-table-compact client-submission-table">
+                                      <thead>
+                                        <tr>
+                                          <th>Question / Field</th>
+                                          <th>Answer</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {answerRows.length === 0 && (
+                                          <tr>
+                                            <td colSpan={2} className="empty-table-cell">
+                                              No captured answers found for this submission.
+                                            </td>
+                                          </tr>
+                                        )}
+                                        {answerRows.map((row) => (
+                                          <tr key={`${submission.id}-${row.id}`}>
+                                            <td>{row.label}</td>
+                                            <td>{row.value}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  <p className="client-submission-summary">
+                                    <strong>Summary:</strong> {displayValue(submission.summary)}
+                                  </p>
+                                </details>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="admin-row">
