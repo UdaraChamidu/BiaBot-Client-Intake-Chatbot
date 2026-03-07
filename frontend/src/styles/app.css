@@ -850,6 +850,8 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .topbar-brand {
@@ -920,6 +922,15 @@ select:focus {
   font-family: "Causten", sans-serif;
   font-size: 0.95rem;
   letter-spacing: 0.02em;
+}
+
+.topbar-voice-toggle {
+  min-height: 34px;
+  padding: 8px 12px;
+}
+
+.topbar-voice-toggle span {
+  white-space: nowrap;
 }
 
 .client-badge {
@@ -3020,6 +3031,11 @@ tbody tr:hover {
 
   .chat-topbar-right {
     gap: 6px;
+  }
+
+  .topbar-voice-toggle {
+    padding: 7px 10px;
+    font-size: 0.78rem;
   }
 
   .theme-toggle-btn {

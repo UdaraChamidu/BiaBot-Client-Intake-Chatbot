@@ -171,6 +171,7 @@ export default function IntakePage() {
   const [summarySource, setSummarySource] = useState("");
   const [isSummaryPreviewMode, setIsSummaryPreviewMode] = useState(false);
 
+  const chatWindowRef = useRef(null);
   const inputRef = useRef(null);
   const tailRef = useRef(null);
   const welcomeTimeoutRef = useRef(null);
@@ -198,7 +199,6 @@ export default function IntakePage() {
     isVoiceOutputSupported,
     selectedVoice,
     selectedVoiceId,
-    setSelectedVoiceId,
     setVoiceOutputEnabled,
     stopRecording,
     stopSpeaking,
@@ -540,7 +540,18 @@ export default function IntakePage() {
   }, [profile]);
 
   useEffect(() => {
-    tailRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const frame = window.requestAnimationFrame(() => {
+      const chatWindow = chatWindowRef.current;
+      if (chatWindow) {
+        chatWindow.scrollTo({
+          top: chatWindow.scrollHeight,
+          behavior: "smooth",
+        });
+        return;
+      }
+      tailRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [messages, suggestions, isBusy]);
 
   const userInitials = getUserInitials(profile);
@@ -806,6 +817,28 @@ export default function IntakePage() {
           <div className="chat-topbar-right">
             <button
               type="button"
+              className={`voice-output-toggle topbar-voice-toggle ${isVoiceOutputEnabled ? "active" : ""}`}
+              onClick={handleVoiceOutputToggle}
+              aria-label={isVoiceOutputEnabled ? "Disable AI voice replies" : "Enable AI voice replies"}
+              aria-pressed={isVoiceOutputEnabled}
+              disabled={!canEnableVoiceOutput}
+              title={
+                canEnableVoiceOutput
+                  ? isVoiceOutputEnabled
+                    ? "AI voice replies are enabled"
+                    : "Enable spoken AI replies"
+                  : voiceToolbarNote
+              }
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+              </svg>
+              <span>{isVoiceOutputEnabled ? "AI Voice On" : "AI Voice Off"}</span>
+            </button>
+            <button
+              type="button"
               className={`topbar-icon-btn ${notificationsEnabled ? "active" : ""}`}
               onClick={handleNotificationsToggle}
               aria-label={notificationsEnabled ? "Disable notifications" : "Enable notifications"}
@@ -859,7 +892,7 @@ export default function IntakePage() {
         {welcomeNotice && <div className="status-banner welcome-popup">{welcomeNotice}</div>}
         {voiceStatusMessage && <div className={voiceStatusClassName}>{voiceStatusMessage}</div>}
 
-        <div className="chat-window">
+        <div ref={chatWindowRef} className="chat-window">
           {messages.length === 0 && !isBusy && (
             <div className="chat-empty-state">
               <img src={BOT_AVATAR_URL} alt="biaBot" className="empty-state-avatar" />
@@ -1014,51 +1047,6 @@ export default function IntakePage() {
             </div>
           </section>
         )}
-
-        <div className="voice-toolbar">
-          <div className="voice-toolbar-controls">
-            <button
-              type="button"
-              className={`voice-output-toggle ${isVoiceOutputEnabled ? "active" : ""}`}
-              onClick={handleVoiceOutputToggle}
-              aria-label={isVoiceOutputEnabled ? "Disable AI voice replies" : "Enable AI voice replies"}
-              aria-pressed={isVoiceOutputEnabled}
-              disabled={!canEnableVoiceOutput}
-              title={
-                canEnableVoiceOutput
-                  ? isVoiceOutputEnabled
-                    ? "AI voice replies are enabled"
-                    : "Enable spoken AI replies"
-                  : voiceToolbarNote
-              }
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-                <path d="M18.5 5.5a9 9 0 0 1 0 13" />
-              </svg>
-              <span>{isVoiceOutputEnabled ? "AI Voice On" : "AI Voice Off"}</span>
-            </button>
-            <label className="voice-select-field">
-              <span>Voice</span>
-              <select
-                value={selectedVoiceId}
-                onChange={(event) => setSelectedVoiceId(event.target.value)}
-                disabled={isLoadingVoices || availableVoices.length === 0}
-              >
-                {availableVoices.length === 0 && <option value="">No voices loaded</option>}
-                {availableVoices.map((voice) => (
-                  <option key={voice.voice_id} value={voice.voice_id}>
-                    {voice.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="voice-toolbar-note">
-            {voiceToolbarNote}
-          </p>
-        </div>
 
         <form className="chat-composer" onSubmit={onComposerSubmit}>
           <button
