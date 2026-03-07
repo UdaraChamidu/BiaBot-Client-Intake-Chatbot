@@ -2297,6 +2297,18 @@ select:focus {
   color: var(--success);
 }
 
+.admin-toast.status {
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--bg-surface) 90%, var(--primary) 10%);
+  color: var(--text);
+}
+
+.admin-toast.warning {
+  border-color: var(--warning-border);
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--warning) 16%);
+  color: var(--warning);
+}
+
 .admin-toast.error {
   border-color: var(--danger-border);
   background: color-mix(in srgb, var(--bg-surface) 84%, var(--danger) 16%);

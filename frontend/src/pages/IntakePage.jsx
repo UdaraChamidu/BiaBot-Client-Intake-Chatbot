@@ -328,13 +328,11 @@ export default function IntakePage() {
       : isSpeaking && isVoiceOutputEnabled
         ? `AI voice is playing${selectedVoice?.name ? ` using ${selectedVoice.name}` : ""}. Start recording to interrupt playback.`
         : "";
-  const voiceStatusClassName = voiceError
-    ? "error-banner voice-status-banner"
-    : isTranscribing
-      ? "status-banner voice-status-banner"
+  const voiceStatusKind = voiceError
+    ? "error"
     : isRecording
-      ? "banner-warning voice-status-banner"
-      : "status-banner voice-status-banner";
+      ? "warning"
+      : "status";
   const canEnableVoiceOutput =
     isVoiceOutputSupported &&
     !isLoadingVoices &&
@@ -349,6 +347,16 @@ export default function IntakePage() {
       : availableVoices.length > 0
         ? "Use the mic to fill the composer. Turn on AI Voice if you want spoken replies."
         : "No ElevenLabs voices are available for this workspace yet.";
+  const toastMessages = useMemo(() => {
+    const items = [];
+    if (welcomeNotice) {
+      items.push({ id: "welcome", kind: "success", text: welcomeNotice });
+    }
+    if (voiceStatusMessage) {
+      items.push({ id: "voice-status", kind: voiceStatusKind, text: voiceStatusMessage });
+    }
+    return items;
+  }, [voiceStatusKind, voiceStatusMessage, welcomeNotice]);
 
   function pushBotMessage(text) {
     setMessages((prev) => [...prev, makeMessage("bot", text)]);
@@ -1095,9 +1103,6 @@ export default function IntakePage() {
           </div>
         </div>
 
-        {welcomeNotice && <div className="status-banner welcome-popup">{welcomeNotice}</div>}
-        {voiceStatusMessage && <div className={voiceStatusClassName}>{voiceStatusMessage}</div>}
-
         <div ref={chatWindowRef} className="chat-window">
           {messages.length === 0 && !isBusy && (
             <div className="chat-empty-state">
@@ -1299,6 +1304,18 @@ export default function IntakePage() {
           </button>
         </form>
       </div>
+      {toastMessages.length > 0 && (
+        <div className="admin-toast-stack" role="status" aria-live="polite">
+          {toastMessages.map((toast) => (
+            <article
+              key={toast.id}
+              className={`admin-toast ${toast.kind}`}
+            >
+              {toast.text}
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
