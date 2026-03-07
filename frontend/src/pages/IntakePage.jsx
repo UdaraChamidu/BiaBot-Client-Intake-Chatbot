@@ -148,14 +148,118 @@ function stringifySummarySegments(segments) {
     .join("\n");
 }
 
+const INTAKE_CHAT_SESSION_KEY = "biabot-intake-chat-session";
+
+function hasSessionStorage() {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+}
+
+function normalizeStoredMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+  return messages
+    .map((message) => {
+      const role = message?.role === "user" ? "user" : "bot";
+      const text = String(message?.text ?? "");
+      if (!text.trim()) {
+        return null;
+      }
+      return {
+        id: String(message?.id ?? messageId()),
+        role,
+        text,
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeStoredSuggestions(suggestions) {
+  if (!Array.isArray(suggestions)) {
+    return [];
+  }
+  return suggestions.map((item) => String(item ?? "").trim()).filter(Boolean);
+}
+
+function buildChatSessionSnapshot(rawValue) {
+  if (!rawValue || typeof rawValue !== "object") {
+    return null;
+  }
+
+  const snapshot = {
+    messages: normalizeStoredMessages(rawValue.messages),
+    suggestions: normalizeStoredSuggestions(rawValue.suggestions),
+    inputValue: String(rawValue.inputValue ?? ""),
+    phase: String(rawValue.phase ?? "await_client_code"),
+    sessionId: String(rawValue.sessionId ?? ""),
+    profile: rawValue.profile && typeof rawValue.profile === "object" ? rawValue.profile : null,
+    summaryDraft: String(rawValue.summaryDraft ?? ""),
+    summarySource: String(rawValue.summarySource ?? ""),
+    isSummaryPreviewMode: Boolean(rawValue.isSummaryPreviewMode),
+  };
+
+  const hasMeaningfulContent =
+    snapshot.messages.length > 0 ||
+    snapshot.suggestions.length > 0 ||
+    snapshot.inputValue.trim() ||
+    snapshot.sessionId ||
+    snapshot.profile ||
+    snapshot.summaryDraft.trim();
+
+  return hasMeaningfulContent ? snapshot : null;
+}
+
+function readStoredChatSession() {
+  if (!hasSessionStorage()) {
+    return null;
+  }
+
+  try {
+    const rawValue = window.sessionStorage.getItem(INTAKE_CHAT_SESSION_KEY);
+    if (!rawValue) {
+      return null;
+    }
+    return buildChatSessionSnapshot(JSON.parse(rawValue));
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredChatSession(snapshot) {
+  if (!hasSessionStorage()) {
+    return;
+  }
+
+  const normalizedSnapshot = buildChatSessionSnapshot(snapshot);
+  if (!normalizedSnapshot) {
+    window.sessionStorage.removeItem(INTAKE_CHAT_SESSION_KEY);
+    return;
+  }
+
+  window.sessionStorage.setItem(
+    INTAKE_CHAT_SESSION_KEY,
+    JSON.stringify(normalizedSnapshot)
+  );
+}
+
+function clearStoredChatSession() {
+  if (!hasSessionStorage()) {
+    return;
+  }
+  window.sessionStorage.removeItem(INTAKE_CHAT_SESSION_KEY);
+}
+
 export default function IntakePage() {
-  const [messages, setMessages] = useState([]);
-  const [suggestions, setSuggestions] = useState([]);
-  const [inputValue, setInputValue] = useState("");
+  const restoredChatSessionRef = useRef(readStoredChatSession());
+  const restoredChatSession = restoredChatSessionRef.current;
+
+  const [messages, setMessages] = useState(() => restoredChatSession?.messages ?? []);
+  const [suggestions, setSuggestions] = useState(() => restoredChatSession?.suggestions ?? []);
+  const [inputValue, setInputValue] = useState(() => restoredChatSession?.inputValue ?? "");
   const [isBusy, setIsBusy] = useState(false);
-  const [phase, setPhase] = useState("await_client_code");
-  const [sessionId, setSessionId] = useState("");
-  const [profile, setProfile] = useState(null);
+  const [phase, setPhase] = useState(() => restoredChatSession?.phase ?? "await_client_code");
+  const [sessionId, setSessionId] = useState(() => restoredChatSession?.sessionId ?? "");
+  const [profile, setProfile] = useState(() => restoredChatSession?.profile ?? null);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     if (typeof window === "undefined") {
@@ -167,15 +271,20 @@ export default function IntakePage() {
   const [welcomeNotice, setWelcomeNotice] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [currentTheme, setCurrentTheme] = useState(getStoredTheme());
-  const [summaryDraft, setSummaryDraft] = useState("");
-  const [summarySource, setSummarySource] = useState("");
-  const [isSummaryPreviewMode, setIsSummaryPreviewMode] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState(() => restoredChatSession?.summaryDraft ?? "");
+  const [summarySource, setSummarySource] = useState(() => restoredChatSession?.summarySource ?? "");
+  const [isSummaryPreviewMode, setIsSummaryPreviewMode] = useState(() =>
+    restoredChatSession?.isSummaryPreviewMode ?? false
+  );
+  const [isNewChatConfirmOpen, setIsNewChatConfirmOpen] = useState(false);
 
   const chatWindowRef = useRef(null);
   const inputRef = useRef(null);
   const tailRef = useRef(null);
   const welcomeTimeoutRef = useRef(null);
-  const lastWelcomedClientCodeRef = useRef("");
+  const lastWelcomedClientCodeRef = useRef(
+    String(restoredChatSession?.profile?.client_code ?? "").trim().toUpperCase()
+  );
   const parsedSummary = useMemo(() => parseSummarySegments(summaryDraft), [summaryDraft]);
   const hasStructuredSummary = parsedSummary.editableCount > 0;
   const latestBotMessage = useMemo(() => {
@@ -300,10 +409,13 @@ export default function IntakePage() {
   }
 
   async function startNewChat() {
+    clearStoredChatSession();
     stopRecording();
     stopSpeaking();
     clearVoiceError();
     setIsProfilePanelOpen(false);
+    setIsNewChatConfirmOpen(false);
+    setWelcomeNotice("");
     setInputValue("");
     setIsSummaryPreviewMode(false);
     setIsBusy(true);
@@ -382,6 +494,24 @@ export default function IntakePage() {
   function handleVoiceOutputToggle() {
     clearVoiceError();
     setVoiceOutputEnabled(!isVoiceOutputEnabled);
+  }
+
+  function openNewChatConfirmation() {
+    if (isBusy) {
+      return;
+    }
+    setIsNewChatConfirmOpen(true);
+  }
+
+  function closeNewChatConfirmation() {
+    if (isBusy) {
+      return;
+    }
+    setIsNewChatConfirmOpen(false);
+  }
+
+  async function confirmStartNewChat() {
+    await startNewChat();
   }
 
   async function handleUpdateSummary() {
@@ -473,8 +603,10 @@ export default function IntakePage() {
 
     stopRecording();
     stopSpeaking();
+    clearStoredChatSession();
     clearVoiceError();
     setIsProfilePanelOpen(false);
+    setIsNewChatConfirmOpen(false);
     setWelcomeNotice("");
     setIsBusy(true);
     try {
@@ -502,6 +634,9 @@ export default function IntakePage() {
   }
 
   useEffect(() => {
+    if (restoredChatSessionRef.current) {
+      return;
+    }
     initializeChat();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -540,6 +675,45 @@ export default function IntakePage() {
   }, [profile]);
 
   useEffect(() => {
+    writeStoredChatSession({
+      messages,
+      suggestions,
+      inputValue,
+      phase,
+      sessionId,
+      profile,
+      summaryDraft,
+      summarySource,
+      isSummaryPreviewMode,
+    });
+  }, [
+    inputValue,
+    isSummaryPreviewMode,
+    messages,
+    phase,
+    profile,
+    sessionId,
+    suggestions,
+    summaryDraft,
+    summarySource,
+  ]);
+
+  useEffect(() => {
+    if (!isNewChatConfirmOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsNewChatConfirmOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isNewChatConfirmOpen]);
+
+  useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const chatWindow = chatWindowRef.current;
       if (chatWindow) {
@@ -573,6 +747,13 @@ export default function IntakePage() {
         aria-label="Close profile panel"
       />
 
+      <button
+        type="button"
+        className={`confirm-backdrop ${isNewChatConfirmOpen ? "show" : ""}`}
+        onClick={closeNewChatConfirmation}
+        aria-label="Close new chat confirmation"
+      />
+
       <aside className={`chat-sidebar ${isSidebarOpen ? "open" : ""}`}>
         <div className="sidebar-head">
           <img src={BOT_AVATAR_URL} alt="biaBot avatar" />
@@ -586,7 +767,7 @@ export default function IntakePage() {
           Conversational assistant that understands free-form replies and captures structured intake details.
         </p>
 
-        <button type="button" className="primary-btn sidebar-action" onClick={startNewChat}>
+        <button type="button" className="primary-btn sidebar-action" onClick={openNewChatConfirmation}>
           + New Chat
         </button>
 
@@ -656,6 +837,31 @@ export default function IntakePage() {
           )}
         </div>
       </aside>
+
+      {isNewChatConfirmOpen && (
+        <div
+          className="confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-chat-confirm-title"
+          aria-describedby="new-chat-confirm-description"
+        >
+          <p className="chatbot-tag">New Chat</p>
+          <h3 id="new-chat-confirm-title">Start a fresh conversation?</h3>
+          <p id="new-chat-confirm-description" className="confirm-modal-copy">
+            If you start a new chat now, the current conversation history will not be saved. You can refresh this
+            page to keep the current chat only within this browser session.
+          </p>
+          <div className="confirm-modal-actions">
+            <button type="button" className="ghost-btn" onClick={closeNewChatConfirmation} disabled={isBusy}>
+              Cancel
+            </button>
+            <button type="button" className="danger-btn" onClick={confirmStartNewChat} disabled={isBusy}>
+              Start New Chat
+            </button>
+          </div>
+        </div>
+      )}
 
       <aside className={`profile-panel ${isProfilePanelOpen ? "open" : ""}`} aria-hidden={!isProfilePanelOpen}>
         <div className="profile-panel-head">

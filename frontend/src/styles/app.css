@@ -985,6 +985,56 @@ select:focus {
   pointer-events: auto;
 }
 
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 31;
+  border: 0;
+  background: var(--overlay);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-base);
+}
+
+.confirm-backdrop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.confirm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 32;
+  width: min(460px, calc(100vw - 32px));
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--panel-soft);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.confirm-modal h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.confirm-modal-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .profile-panel {
   position: fixed;
   top: 18px;
@@ -3014,6 +3064,15 @@ tbody tr:hover {
   .chat-main.review-mode .summary-editor-textarea {
     min-height: 140px;
     max-height: 220px;
+  }
+
+  .confirm-modal {
+    width: min(420px, calc(100vw - 24px));
+    padding: 16px;
+  }
+
+  .confirm-modal-actions {
+    flex-direction: column-reverse;
   }
 
   .chat-topbar {
