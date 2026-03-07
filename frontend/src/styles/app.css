@@ -1488,6 +1488,131 @@ select:focus {
 /* ───────────────────────────────────────────────
    CHAT COMPOSER
    ─────────────────────────────────────────────── */
+.voice-status-banner {
+  margin-top: 12px;
+}
+
+.voice-preview-banner {
+  margin-top: 8px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: var(--white-soft);
+  color: var(--text);
+  font-weight: 500;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: fadeSlideUp 0.3s ease forwards;
+}
+
+.voice-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.voice-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.voice-output-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: var(--white-soft);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.voice-output-toggle svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.voice-output-toggle:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.voice-output-toggle:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.voice-output-toggle.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.voice-output-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.voice-select-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.voice-select-field span {
+  white-space: nowrap;
+}
+
+.voice-select-field select {
+  min-width: 170px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--white-soft);
+  color: var(--text);
+  font: inherit;
+  padding: 9px 12px;
+}
+
+.voice-select-field select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.voice-select-field select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.voice-toolbar-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  text-align: right;
+}
+
 .chat-composer {
   display: flex;
   gap: 8px;
@@ -1499,6 +1624,58 @@ select:focus {
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-sm);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.voice-input-btn {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--white-soft);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.voice-input-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.voice-input-btn:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
+}
+
+.voice-input-btn:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.voice-input-btn.recording {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+  animation: voicePulse 1.25s ease-in-out infinite;
+}
+
+.voice-input-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .chat-composer:focus-within {
@@ -1561,6 +1738,20 @@ select:focus {
 /* ───────────────────────────────────────────────
    BANNERS
    ─────────────────────────────────────────────── */
+@keyframes voicePulse {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.04);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
 .error-banner,
 .banner-danger {
   border-radius: 10px;
@@ -2859,9 +3050,45 @@ tbody tr:hover {
     font-size: 0.74rem;
   }
 
+  .voice-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .voice-toolbar-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .voice-output-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .voice-select-field {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .voice-select-field select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .voice-toolbar-note {
+    text-align: left;
+    font-size: 0.8rem;
+  }
+
   .chat-composer {
     border-radius: 12px;
     padding: 4px 4px 4px 2px;
+  }
+
+  .voice-input-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
   }
 
   .chat-composer input {

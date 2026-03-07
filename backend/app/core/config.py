@@ -41,6 +41,25 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-nano"
     openai_base_url: str | None = None
 
+    voice_enabled: bool = True
+    voice_request_timeout_seconds: int = 90
+    voice_max_audio_bytes: int = 12_000_000
+
+    deepgram_api_key: str | None = None
+    deepgram_api_url: str = "https://api.deepgram.com/v1/listen"
+    deepgram_model: str = "nova-3"
+    deepgram_language: str | None = "en"
+    deepgram_detect_language: bool = False
+    deepgram_smart_format: bool = True
+    deepgram_punctuate: bool = True
+
+    elevenlabs_api_key: str | None = None
+    elevenlabs_api_url: str = "https://api.elevenlabs.io"
+    elevenlabs_voice_id: str | None = None
+    elevenlabs_model_id: str = "eleven_flash_v2_5"
+    elevenlabs_output_format: str = "mp3_44100_128"
+    elevenlabs_language_code: str | None = None
+
     intake_system_prompt: str = (
         "You are an intake assistant. Stay in intake mode only. "
         "Ask and organize project request information only. "

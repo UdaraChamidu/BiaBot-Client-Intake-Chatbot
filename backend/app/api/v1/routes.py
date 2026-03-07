@@ -2,8 +2,9 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 
+from app.core.config import get_settings
 from app.core.rate_limit import rate_limiter
 from app.core.security import (
     create_client_token,
@@ -32,6 +33,9 @@ from app.models.schemas import (
     NotificationBulkActionResponse,
     RequestLogRecord,
     ServiceOptionsUpdate,
+    VoiceCatalogResponse,
+    VoiceSynthesisRequest,
+    VoiceTranscriptionResponse,
 )
 from app.services.chat_agent_service import ChatAgentService
 from app.services.chat_parser import extract_client_code_candidates, normalize_answer
@@ -40,11 +44,16 @@ from app.services.intake_service import generate_summary
 from app.services.monday_service import MondayService
 from app.services.openai_service import OpenAIService
 from app.services.store import get_store
+from app.services.voice.deepgram_service import DeepgramService
+from app.services.voice.elevenlabs_service import ElevenLabsService
 
 router = APIRouter()
+settings = get_settings()
 store = get_store()
 openai_service = OpenAIService()
 monday_service = MondayService()
+deepgram_service = DeepgramService()
+elevenlabs_service = ElevenLabsService()
 chat_agent_service = ChatAgentService(
     store=store,
     openai_service=openai_service,
@@ -63,6 +72,111 @@ def chat_message(payload: ChatMessageRequest) -> ChatMessageResponse:
         message=payload.message,
         session_id=payload.session_id,
         reset=payload.reset,
+    )
+
+
+@router.get("/voice/voices", response_model=VoiceCatalogResponse, tags=["voice"])
+async def list_voice_options(request: Request) -> VoiceCatalogResponse:
+    remote = request.client.host if request.client else "unknown"
+    rate_limiter.check(key=f"voice:voices:{remote}", limit=30, window_seconds=60)
+
+    if not settings.voice_enabled:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Voice features are disabled.")
+
+    if not elevenlabs_service.available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ElevenLabs voice synthesis is not configured.",
+        )
+
+    try:
+        payload = await elevenlabs_service.list_voices()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None
+
+    return VoiceCatalogResponse.model_validate(payload)
+
+
+@router.post("/voice/stt", response_model=VoiceTranscriptionResponse, tags=["voice"])
+async def transcribe_voice_audio(
+    request: Request,
+    audio: UploadFile = File(...),
+    preview: bool = Query(default=False),
+) -> VoiceTranscriptionResponse:
+    remote = request.client.host if request.client else "unknown"
+    if preview:
+        rate_limiter.check(key=f"voice:stt-preview:{remote}", limit=360, window_seconds=300)
+    else:
+        rate_limiter.check(key=f"voice:stt-final:{remote}", limit=30, window_seconds=300)
+
+    if not settings.voice_enabled:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Voice features are disabled.")
+
+    if not deepgram_service.available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Deepgram voice transcription is not configured.",
+        )
+
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No audio was uploaded.")
+    if len(audio_bytes) > settings.voice_max_audio_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Uploaded audio is larger than the configured limit.",
+        )
+
+    try:
+        payload = await deepgram_service.transcribe_audio(
+            audio_bytes=audio_bytes,
+            mime_type=audio.content_type,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None
+
+    transcript = str(payload.get("transcript") or "").strip()
+    if not transcript:
+        if preview:
+            return VoiceTranscriptionResponse.model_validate(payload)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No speech could be detected in the uploaded audio.",
+        )
+
+    return VoiceTranscriptionResponse.model_validate(payload)
+
+
+@router.post("/voice/tts", tags=["voice"])
+async def synthesize_voice_audio(
+    payload: VoiceSynthesisRequest,
+    request: Request,
+) -> Response:
+    remote = request.client.host if request.client else "unknown"
+    rate_limiter.check(key=f"voice:tts:{remote}", limit=60, window_seconds=300)
+
+    if not settings.voice_enabled:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Voice features are disabled.")
+
+    if not elevenlabs_service.available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ElevenLabs voice synthesis is not configured.",
+        )
+
+    try:
+        result = await elevenlabs_service.synthesize_text(
+            text=payload.text,
+            voice_id=payload.voice_id,
+            model_id=payload.model_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None
+
+    return Response(
+        content=result["audio_bytes"],
+        media_type=str(result.get("media_type") or "audio/mpeg"),
+        headers={"Cache-Control": "no-store"},
     )
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
+import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
 import { sendChatMessage } from "../services/intakeService";
 import { getStoredTheme, toggleTheme } from "../utils/theme";
 
@@ -170,11 +171,75 @@ export default function IntakePage() {
   const [summarySource, setSummarySource] = useState("");
   const [isSummaryPreviewMode, setIsSummaryPreviewMode] = useState(false);
 
+  const inputRef = useRef(null);
   const tailRef = useRef(null);
   const welcomeTimeoutRef = useRef(null);
   const lastWelcomedClientCodeRef = useRef("");
   const parsedSummary = useMemo(() => parseSummarySegments(summaryDraft), [summaryDraft]);
   const hasStructuredSummary = parsedSummary.editableCount > 0;
+  const latestBotMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === "bot") {
+        return messages[index];
+      }
+    }
+    return null;
+  }, [messages]);
+  const {
+    availableVoices,
+    cancelPendingVoiceTranscription,
+    clearVoiceError,
+    isLoadingVoices,
+    isRecording,
+    isSpeaking,
+    isTranscribing,
+    isVoiceInputSupported,
+    isVoiceOutputEnabled,
+    isVoiceOutputSupported,
+    selectedVoice,
+    selectedVoiceId,
+    setSelectedVoiceId,
+    setVoiceOutputEnabled,
+    stopRecording,
+    stopSpeaking,
+    toggleRecording,
+    voiceCatalogError,
+    voiceError,
+  } = useVoiceAssistant({
+    latestBotMessage,
+    getCurrentInputValue: () => inputValue,
+    onInputValueChange: setInputValue,
+  });
+  const voiceStatusMessage = voiceError
+    ? voiceError
+    : isTranscribing
+      ? "Refining the transcript in the background. You can edit or send now."
+    : isRecording
+      ? "Listening. Click the mic again when you are done speaking."
+      : isSpeaking && isVoiceOutputEnabled
+        ? `AI voice is playing${selectedVoice?.name ? ` using ${selectedVoice.name}` : ""}. Start recording to interrupt playback.`
+        : "";
+  const voiceStatusClassName = voiceError
+    ? "error-banner voice-status-banner"
+    : isTranscribing
+      ? "status-banner voice-status-banner"
+    : isRecording
+      ? "banner-warning voice-status-banner"
+      : "status-banner voice-status-banner";
+  const canEnableVoiceOutput =
+    isVoiceOutputSupported &&
+    !isLoadingVoices &&
+    Boolean(selectedVoiceId) &&
+    availableVoices.length > 0;
+  const voiceToolbarNote = voiceCatalogError
+    ? voiceCatalogError
+    : !isVoiceOutputSupported
+      ? "Text chat still works here, but this browser cannot play AI voice replies."
+    : isLoadingVoices
+      ? "Loading AI voices from ElevenLabs..."
+      : availableVoices.length > 0
+        ? "Use the mic to fill the composer. Turn on AI Voice if you want spoken replies."
+        : "No ElevenLabs voices are available for this workspace yet.";
 
   function pushBotMessage(text) {
     setMessages((prev) => [...prev, makeMessage("bot", text)]);
@@ -235,6 +300,9 @@ export default function IntakePage() {
   }
 
   async function startNewChat() {
+    stopRecording();
+    stopSpeaking();
+    clearVoiceError();
     setIsProfilePanelOpen(false);
     setInputValue("");
     setIsSummaryPreviewMode(false);
@@ -261,10 +329,13 @@ export default function IntakePage() {
 
   async function submitMessage(rawText) {
     const text = rawText.trim();
-    if (!text || isBusy) {
+    if (!text || isBusy || isRecording) {
       return false;
     }
 
+    cancelPendingVoiceTranscription();
+    stopSpeaking();
+    clearVoiceError();
     pushUserMessage(text);
     setIsBusy(true);
     try {
@@ -290,11 +361,31 @@ export default function IntakePage() {
   }
 
   async function onSuggestionClick(option) {
+    stopRecording();
+    stopSpeaking();
+    clearVoiceError();
     await submitMessage(option);
   }
 
+  function handleComposerChange(event) {
+    setInputValue(event.target.value);
+    if (voiceError) {
+      clearVoiceError();
+    }
+  }
+
+  function handleVoiceInputToggle() {
+    clearVoiceError();
+    toggleRecording();
+  }
+
+  function handleVoiceOutputToggle() {
+    clearVoiceError();
+    setVoiceOutputEnabled(!isVoiceOutputEnabled);
+  }
+
   async function handleUpdateSummary() {
-    if (!summaryDraft.trim() || phase !== "await_confirmation" || isBusy) {
+    if (!summaryDraft.trim() || phase !== "await_confirmation" || isBusy || isRecording || isTranscribing) {
       return;
     }
     if (isSummaryPreviewMode) {
@@ -309,7 +400,7 @@ export default function IntakePage() {
   }
 
   async function handleSendToBianomics() {
-    if (phase !== "await_confirmation" || isBusy) {
+    if (phase !== "await_confirmation" || isBusy || isRecording || isTranscribing) {
       return;
     }
     if (isSummaryPreviewMode) {
@@ -329,6 +420,9 @@ export default function IntakePage() {
     if (isBusy) {
       return;
     }
+    stopRecording();
+    stopSpeaking();
+    clearVoiceError();
     setIsSummaryPreviewMode(true);
     setSummarySource(TEST_SUMMARY_TEMPLATE);
     setSummaryDraft(TEST_SUMMARY_TEMPLATE);
@@ -338,6 +432,9 @@ export default function IntakePage() {
   }
 
   async function handleRestartIntake() {
+    stopRecording();
+    stopSpeaking();
+    clearVoiceError();
     if (isSummaryPreviewMode) {
       setIsSummaryPreviewMode(false);
       await startNewChat();
@@ -374,6 +471,9 @@ export default function IntakePage() {
       return;
     }
 
+    stopRecording();
+    stopSpeaking();
+    clearVoiceError();
     setIsProfilePanelOpen(false);
     setWelcomeNotice("");
     setIsBusy(true);
@@ -757,6 +857,7 @@ export default function IntakePage() {
         </div>
 
         {welcomeNotice && <div className="status-banner welcome-popup">{welcomeNotice}</div>}
+        {voiceStatusMessage && <div className={voiceStatusClassName}>{voiceStatusMessage}</div>}
 
         <div className="chat-window">
           {messages.length === 0 && !isBusy && (
@@ -808,14 +909,14 @@ export default function IntakePage() {
             ))}
           </div>
         )}
-        {import.meta.env.DEV && phase !== "await_confirmation" && (
+        {/* {import.meta.env.DEV && phase !== "await_confirmation" && (
           <div className="summary-test-shortcut">
             <button type="button" className="ghost-btn" onClick={loadSummaryPreview} disabled={isBusy}>
               Load Test Summary UI
             </button>
             <p className="muted-text">Dev shortcut: opens Final Review without completing every question.</p>
           </div>
-        )}
+        )} */}
 
         {phase === "await_confirmation" && (
           <section className="summary-editor-card">
@@ -884,7 +985,13 @@ export default function IntakePage() {
                 type="button"
                 className="ghost-btn"
                 onClick={handleUpdateSummary}
-                disabled={isBusy || !summaryDraft.trim() || summaryDraft.trim() === summarySource.trim()}
+                disabled={
+                  isBusy ||
+                  isRecording ||
+                  isTranscribing ||
+                  !summaryDraft.trim() ||
+                  summaryDraft.trim() === summarySource.trim()
+                }
               >
                 Update Summary
               </button>
@@ -892,7 +999,7 @@ export default function IntakePage() {
                 type="button"
                 className="primary-btn"
                 onClick={handleSendToBianomics}
-                disabled={isBusy || !summaryDraft.trim()}
+                disabled={isBusy || isRecording || isTranscribing || !summaryDraft.trim()}
               >
                 Send to Bianomics
               </button>
@@ -900,7 +1007,7 @@ export default function IntakePage() {
                 type="button"
                 className="ghost-btn"
                 onClick={handleRestartIntake}
-                disabled={isBusy}
+                disabled={isBusy || isRecording || isTranscribing}
               >
                 Restart Intake
               </button>
@@ -908,14 +1015,88 @@ export default function IntakePage() {
           </section>
         )}
 
+        <div className="voice-toolbar">
+          <div className="voice-toolbar-controls">
+            <button
+              type="button"
+              className={`voice-output-toggle ${isVoiceOutputEnabled ? "active" : ""}`}
+              onClick={handleVoiceOutputToggle}
+              aria-label={isVoiceOutputEnabled ? "Disable AI voice replies" : "Enable AI voice replies"}
+              aria-pressed={isVoiceOutputEnabled}
+              disabled={!canEnableVoiceOutput}
+              title={
+                canEnableVoiceOutput
+                  ? isVoiceOutputEnabled
+                    ? "AI voice replies are enabled"
+                    : "Enable spoken AI replies"
+                  : voiceToolbarNote
+              }
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+              </svg>
+              <span>{isVoiceOutputEnabled ? "AI Voice On" : "AI Voice Off"}</span>
+            </button>
+            <label className="voice-select-field">
+              <span>Voice</span>
+              <select
+                value={selectedVoiceId}
+                onChange={(event) => setSelectedVoiceId(event.target.value)}
+                disabled={isLoadingVoices || availableVoices.length === 0}
+              >
+                {availableVoices.length === 0 && <option value="">No voices loaded</option>}
+                {availableVoices.map((voice) => (
+                  <option key={voice.voice_id} value={voice.voice_id}>
+                    {voice.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="voice-toolbar-note">
+            {voiceToolbarNote}
+          </p>
+        </div>
+
         <form className="chat-composer" onSubmit={onComposerSubmit}>
+          <button
+            type="button"
+            className={`voice-input-btn ${isRecording ? "recording" : ""}`}
+            onClick={handleVoiceInputToggle}
+            disabled={isBusy || !isVoiceInputSupported}
+            aria-label={isRecording ? "Stop voice input" : "Start voice input"}
+            aria-pressed={isRecording}
+            title={
+              isVoiceInputSupported
+                ? isRecording
+                  ? "Stop voice input"
+                  : "Start voice input"
+                : "Voice input works in Chrome or Edge-based browsers"
+            }
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" />
+              <path d="M19 10a7 7 0 0 1-14 0" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+              <line x1="8" y1="22" x2="16" y2="22" />
+            </svg>
+          </button>
           <input
+            ref={inputRef}
             value={inputValue}
-            onChange={(event) => setInputValue(event.target.value)}
+            onChange={handleComposerChange}
             placeholder={composerPlaceholder(phase)}
             disabled={isBusy}
+            readOnly={isRecording}
+            aria-readonly={isRecording}
           />
-          <button type="submit" className="send-btn" disabled={isBusy || !inputValue.trim()}>
+          <button
+            type="submit"
+            className="send-btn"
+            disabled={isBusy || isRecording || !inputValue.trim()}
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13" />
               <polygon points="22 2 15 22 11 13 2 9 22 2" />
