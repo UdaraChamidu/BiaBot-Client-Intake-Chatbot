@@ -36,6 +36,15 @@ create table if not exists public.request_logs (
     created_at timestamptz not null default now()
 );
 
+create table if not exists public.client_login_events (
+    id uuid primary key default gen_random_uuid(),
+    client_code text not null,
+    client_name text not null,
+    login_source text not null default 'chat',
+    remote_addr text,
+    created_at timestamptz not null default now()
+);
+
 create table if not exists public.admin_notifications (
     id uuid primary key default gen_random_uuid(),
     client_code text not null,
@@ -50,6 +59,8 @@ create table if not exists public.admin_notifications (
 
 create index if not exists idx_request_logs_client_code on public.request_logs(client_code);
 create index if not exists idx_request_logs_created_at on public.request_logs(created_at desc);
+create index if not exists idx_client_login_events_client_code on public.client_login_events(client_code);
+create index if not exists idx_client_login_events_created_at on public.client_login_events(created_at desc);
 create index if not exists idx_admin_notifications_created_at on public.admin_notifications(created_at desc);
 create index if not exists idx_admin_notifications_is_read on public.admin_notifications(is_read);
 

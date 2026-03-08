@@ -53,6 +53,14 @@ export async function getRequestLogs(adminPassword, limit = 100) {
   return data;
 }
 
+export async function getClientLoginEvents(adminPassword, limit = 100) {
+  const { data } = await apiClient.get("/admin/client-login-events", {
+    headers: adminHeaders(adminPassword),
+    params: { limit },
+  });
+  return data;
+}
+
 export async function getAdminNotifications(adminPassword, limit = 100) {
   const { data } = await apiClient.get("/admin/notifications", {
     headers: adminHeaders(adminPassword),

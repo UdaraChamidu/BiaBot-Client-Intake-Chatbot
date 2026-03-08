@@ -109,6 +109,7 @@ class ChatAgentService:
         message: str,
         session_id: str | None = None,
         reset: bool = False,
+        remote_addr: str | None = None,
     ) -> ChatMessageResponse:
         session = self._get_or_create_session(session_id=session_id, reset=reset)
         cleaned = message.strip()
@@ -163,7 +164,7 @@ class ChatAgentService:
             )
 
         if session.phase == "await_client_code":
-            return self._handle_client_code(session, cleaned)
+            return self._handle_client_code(session, cleaned, remote_addr=remote_addr)
         if session.phase == "await_service":
             return self._handle_service_selection(session, cleaned)
         if session.phase == "await_question":
@@ -191,7 +192,13 @@ class ChatAgentService:
         self.sessions[new_id] = session
         return session
 
-    def _handle_client_code(self, session: ChatSession, message: str) -> ChatMessageResponse:
+    def _handle_client_code(
+        self,
+        session: ChatSession,
+        message: str,
+        *,
+        remote_addr: str | None = None,
+    ) -> ChatMessageResponse:
         extracted_candidates = extract_client_code_candidates(message)
 
         preauth_response = self._try_handle_pre_auth_dialog(
@@ -215,6 +222,7 @@ class ChatAgentService:
             if not profile:
                 continue
 
+            self._record_client_login(profile=profile, login_source="chat", remote_addr=remote_addr)
             session.client_profile = profile
             session.phase = "await_service"
             session.answers = {"approver": profile.get("default_approver") or ""}
@@ -256,6 +264,24 @@ class ChatAgentService:
                 },
             ),
         )
+
+    def _record_client_login(
+        self,
+        *,
+        profile: dict[str, Any],
+        login_source: str,
+        remote_addr: str | None = None,
+    ) -> None:
+        try:
+            self.store.create_client_login_event(
+                client_code=str(profile.get("client_code") or "").strip().upper(),
+                client_name=str(profile.get("client_name") or "").strip(),
+                login_source=login_source,
+                remote_addr=remote_addr,
+            )
+        except Exception:
+            # Login auditing should not block the client from entering the workspace.
+            return
 
     def _handle_service_selection(self, session: ChatSession, message: str) -> ChatMessageResponse:
         profile = session.client_profile

@@ -5,6 +5,7 @@ import {
   deleteAdminNotification,
   deleteClientProfile,
   getAdminNotifications,
+  getClientLoginEvents,
   getClientProfiles,
   getRequestLogs,
   getServiceOptions,
@@ -246,6 +247,17 @@ function formatRelativeTime(value) {
   return `${diffDay}d ago`;
 }
 
+function formatLoginSource(source) {
+  const value = String(source ?? "").trim().toLowerCase();
+  if (value === "api_auth") {
+    return "Direct API Login";
+  }
+  if (value === "chat") {
+    return "Chat Workspace";
+  }
+  return value ? value.replace(/[_-]+/g, " ") : "Unknown";
+}
+
 function formatSubmissionFieldLabel(fieldKey) {
   const raw = String(fieldKey ?? "").trim();
   if (!raw) {
@@ -417,9 +429,12 @@ export default function AdminPage() {
   const [creditRows, setCreditRows] = useState([{ name: "", credits: "" }]);
   const [serviceOptionsText, setServiceOptionsText] = useState("");
   const [logs, setLogs] = useState([]);
+  const [loginEvents, setLoginEvents] = useState([]);
   const [logLimit, setLogLimit] = useState(100);
   const [clientDirectoryQuery, setClientDirectoryQuery] = useState("");
   const [logsQuery, setLogsQuery] = useState("");
+  const [loginEventsQuery, setLoginEventsQuery] = useState("");
+  const [loginHistoryAvailable, setLoginHistoryAvailable] = useState(true);
 
   const [activeTab, setActiveTab] = useState("dashboard");
   const [notifications, setNotifications] = useState([]);
@@ -509,6 +524,22 @@ export default function AdminPage() {
       return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
     });
   }, [logs, logsQuery]);
+
+  const filteredLoginEvents = useMemo(() => {
+    const query = loginEventsQuery.trim().toLowerCase();
+    if (!query) {
+      return loginEvents;
+    }
+    return loginEvents.filter((event) => {
+      const searchable = [
+        event.client_code,
+        event.client_name,
+        event.login_source,
+        event.remote_addr,
+      ];
+      return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
+    });
+  }, [loginEvents, loginEventsQuery]);
 
   const latestAdminLogs = useMemo(() => {
     const deduped = new Map();
@@ -655,6 +686,25 @@ export default function AdminPage() {
     saveAdminSetting(ADMIN_NOTIFICATIONS_AVAILABLE_KEY, nextAvailable ? "1" : "0");
   }
 
+  async function loadClientLoginHistory(password, limit = logLimit) {
+    if (!password) {
+      return [];
+    }
+    try {
+      const rows = await getClientLoginEvents(password, limit);
+      setLoginEvents(rows);
+      setLoginHistoryAvailable(true);
+      return rows;
+    } catch (requestError) {
+      if (Number(requestError?.response?.status) === 404) {
+        setLoginEvents([]);
+        setLoginHistoryAvailable(false);
+        return [];
+      }
+      throw requestError;
+    }
+  }
+
   async function loadNotifications(password, limit = 100, force = false) {
     if (!password || (!notificationsApiAvailable && !force)) {
       return false;
@@ -735,11 +785,12 @@ export default function AdminPage() {
     hydrateProfileForm(selected ?? EMPTY_PROFILE_TEMPLATE);
   }
 
-  async function loadAdminData(password, preferredCode = "") {
+  async function loadAdminData(password, preferredCode = "", limit = logLimit) {
     const [nextProfilesRaw, nextOptions, nextLogs] = await Promise.all([
       getClientProfiles(password),
       getServiceOptions(password),
-      getRequestLogs(password, logLimit),
+      getRequestLogs(password, limit),
+      loadClientLoginHistory(password, limit),
     ]);
 
     const nextProfiles = sortProfiles(nextProfilesRaw);
@@ -778,9 +829,7 @@ export default function AdminPage() {
     saveAdminSetting("admin_notification_poll_seconds", String(notificationPollSeconds));
     saveAdminSetting("admin_default_log_limit", String(nextLimit));
     if (adminPassword) {
-      await loadAdminData(adminPassword);
-      const nextLogs = await getRequestLogs(adminPassword, nextLimit);
-      setLogs(nextLogs);
+      await loadAdminData(adminPassword, "", nextLimit);
       await refreshDashboardSnapshot(adminPassword);
       if (notificationsApiAvailable) {
         await loadNotifications(adminPassword, 100);
@@ -809,7 +858,7 @@ export default function AdminPage() {
       const savedDefaultLimit = readNumberPref("admin_default_log_limit", 100);
       setSettingsLogLimit(String(savedDefaultLimit));
       setLogLimit(savedDefaultLimit);
-      await loadAdminData(password);
+      await loadAdminData(password, "", savedDefaultLimit);
       await refreshDashboardSnapshot(password);
       if (notificationsApiAvailable) {
         await loadNotifications(password, 100);
@@ -830,7 +879,7 @@ export default function AdminPage() {
     setError("");
     setNotice("");
     try {
-      await loadAdminData(adminPassword);
+      await loadAdminData(adminPassword, "", logLimit);
       await refreshDashboardSnapshot(adminPassword);
       if (notificationsApiAvailable) {
         await loadNotifications(adminPassword, 100);
@@ -1051,11 +1100,14 @@ export default function AdminPage() {
     setError("");
     setNotice("");
     try {
-      const nextLogs = await getRequestLogs(adminPassword, logLimit);
+      const [nextLogs] = await Promise.all([
+        getRequestLogs(adminPassword, logLimit),
+        loadClientLoginHistory(adminPassword, logLimit),
+      ]);
       setLogs(nextLogs);
-      setNotice("Request logs refreshed.");
+      setNotice("Audit logs refreshed.");
     } catch (requestError) {
-      setError(toErrorText(requestError, "Unable to load request logs."));
+      setError(toErrorText(requestError, "Unable to load audit logs."));
     } finally {
       setLoading(false);
     }
@@ -1068,6 +1120,7 @@ export default function AdminPage() {
     setIsAuthenticated(false);
     setProfiles([]);
     setLogs([]);
+    setLoginEvents([]);
     setSelectedClientCode(NEW_PROFILE_ID);
     setActiveTab("dashboard");
     hydrateProfileForm(EMPTY_PROFILE_TEMPLATE);
@@ -1075,6 +1128,8 @@ export default function AdminPage() {
     setDashboardLogs([]);
     setDashboardUpdatedAt("");
     setSettingsLogLimit("100");
+    setLoginEventsQuery("");
+    setLoginHistoryAvailable(true);
     setNotifications([]);
     setIsNotificationPanelOpen(false);
     setError("");
@@ -1204,7 +1259,10 @@ export default function AdminPage() {
         setSettingsLogLimit(String(savedDefaultLimit));
         setLogLimit(savedDefaultLimit);
 
-        const restoreTasks = [loadAdminData(savedPassword), refreshDashboardSnapshot(savedPassword)];
+        const restoreTasks = [
+          loadAdminData(savedPassword, "", savedDefaultLimit),
+          refreshDashboardSnapshot(savedPassword),
+        ];
         if (notificationsApiAvailable) {
           restoreTasks.push(loadNotifications(savedPassword, 100));
         }
@@ -1459,8 +1517,10 @@ export default function AdminPage() {
             className={`admin-tab ${activeTab === "logs" ? "active" : ""}`}
             onClick={() => setActiveTab("logs")}
           >
-            Request Logs
-            {logs.length > 0 && <span className="tab-badge">{logs.length}</span>}
+            Audit Logs
+            {logs.length + loginEvents.length > 0 && (
+              <span className="tab-badge">{logs.length + loginEvents.length}</span>
+            )}
           </button>
           <button
             type="button"
@@ -2171,7 +2231,7 @@ export default function AdminPage() {
                     </button>
                   )}
                   <button type="button" className="ghost-btn" onClick={refreshLogs} disabled={loading}>
-                    Refresh Logs
+                    Refresh Audit Logs
                   </button>
                 </div>
                 <div className="logs-summary">
@@ -2217,6 +2277,103 @@ export default function AdminPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </article>
+
+            <article className="panel logs-panel">
+              <div className="logs-controls">
+                <div className="panel-header">
+                  <h3>Client Login History</h3>
+                  <span className="tab-badge">{loginEvents.length}</span>
+                </div>
+                <p className="muted-text">
+                  Every successful client-code login is recorded here with the exact timestamp.
+                </p>
+                {!loginHistoryAvailable && (
+                  <p className="muted-text">
+                    Login history is unavailable. Apply the latest DB schema and restart backend.
+                  </p>
+                )}
+                {loginHistoryAvailable && (
+                  <>
+                    <div className="logs-filters">
+                      <label htmlFor="login-events-limit">Limit</label>
+                      <select
+                        id="login-events-limit"
+                        value={String(logLimit)}
+                        onChange={(event) => setLogLimit(Number.parseInt(event.target.value, 10))}
+                      >
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                      </select>
+                      <input
+                        value={loginEventsQuery}
+                        onChange={(event) => setLoginEventsQuery(event.target.value)}
+                        placeholder="Search by client, source, or remote address"
+                        aria-label="Search client login history"
+                      />
+                      {loginEventsQuery.trim() && (
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => setLoginEventsQuery("")}
+                        >
+                          Clear
+                        </button>
+                      )}
+                      <button type="button" className="ghost-btn" onClick={refreshLogs} disabled={loading}>
+                        Refresh Audit Logs
+                      </button>
+                    </div>
+                    <div className="logs-summary">
+                      <span className="summary-pill">Visible: {filteredLoginEvents.length}</span>
+                      <span className="summary-pill">Loaded: {loginEvents.length}</span>
+                      <span className="summary-pill">Limit: {logLimit}</span>
+                    </div>
+                    <div className="table-scroll">
+                      <table className="logs-table">
+                        <thead>
+                          <tr>
+                            <th>Logged In</th>
+                            <th>Client</th>
+                            <th>Source</th>
+                            <th>Remote Address</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredLoginEvents.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="empty-table-cell">
+                                {loginEvents.length === 0
+                                  ? "No client login history found."
+                                  : "No login events match your search."}
+                              </td>
+                            </tr>
+                          )}
+                          {filteredLoginEvents.map((event) => (
+                            <tr key={event.id}>
+                              <td>
+                                <time dateTime={event.created_at}>
+                                  {new Date(event.created_at).toLocaleString()}
+                                </time>
+                              </td>
+                              <td>
+                                <div className="logs-client">
+                                  <span className="table-badge">{event.client_code}</span>
+                                  <span>{displayValue(event.client_name, "Unknown client")}</span>
+                                </div>
+                              </td>
+                              <td>{formatLoginSource(event.login_source)}</td>
+                              <td>{displayValue(event.remote_addr, "-")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </div>
             </article>
           </div>

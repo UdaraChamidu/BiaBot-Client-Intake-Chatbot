@@ -21,6 +21,7 @@ class InMemoryStore:
         }
         self.service_options = list(DEFAULT_SERVICE_OPTIONS)
         self.request_logs: list[dict[str, Any]] = []
+        self.client_login_events: list[dict[str, Any]] = []
         self.admin_notifications: list[dict[str, Any]] = []
 
     def get_client_profile(self, client_code: str) -> dict[str, Any] | None:
@@ -73,6 +74,28 @@ class InMemoryStore:
 
     def list_request_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         return self.request_logs[:limit]
+
+    def create_client_login_event(
+        self,
+        *,
+        client_code: str,
+        client_name: str,
+        login_source: str = "chat",
+        remote_addr: str | None = None,
+    ) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            "created_at": datetime.now(timezone.utc),
+            "client_code": client_code,
+            "client_name": client_name,
+            "login_source": login_source,
+            "remote_addr": remote_addr,
+        }
+        self.client_login_events.insert(0, record)
+        return record
+
+    def list_client_login_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self.client_login_events[:limit]
 
     def create_admin_notification(
         self,
@@ -215,6 +238,34 @@ class SupabaseStore:
     def list_request_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         response = (
             self.client.table("request_logs")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return response.data or []
+
+    def create_client_login_event(
+        self,
+        *,
+        client_code: str,
+        client_name: str,
+        login_source: str = "chat",
+        remote_addr: str | None = None,
+    ) -> dict[str, Any]:
+        row = {
+            "client_code": client_code,
+            "client_name": client_name,
+            "login_source": login_source,
+            "remote_addr": remote_addr,
+        }
+        response = self.client.table("client_login_events").insert(row).execute()
+        rows = response.data or []
+        return rows[0] if rows else row
+
+    def list_client_login_events(self, limit: int = 100) -> list[dict[str, Any]]:
+        response = (
+            self.client.table("client_login_events")
             .select("*")
             .order("created_at", desc=True)
             .limit(limit)

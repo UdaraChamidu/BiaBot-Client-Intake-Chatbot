@@ -88,6 +88,7 @@ All protected admin routes require header `x-admin-password` (or legacy `x-admin
 - `GET /admin/service-options`
 - `PUT /admin/service-options`
 - `GET /admin/request-logs?limit=50`
+- `GET /admin/client-login-events?limit=50`
 - `POST /admin/monday/verify`
   - Body:
     ```json

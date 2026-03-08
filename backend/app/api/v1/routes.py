@@ -20,6 +20,7 @@ from app.models.schemas import (
     ChatMessageRequest,
     ChatMessageResponse,
     ClientCodeRequest,
+    ClientLoginEventRecord,
     ClientCodeResponse,
     ClientProfile,
     IntakeAnswerNormalizationRequest,
@@ -67,11 +68,13 @@ def health_check() -> dict[str, str]:
 
 
 @router.post("/chat/message", response_model=ChatMessageResponse, tags=["chat"])
-def chat_message(payload: ChatMessageRequest) -> ChatMessageResponse:
+def chat_message(payload: ChatMessageRequest, request: Request) -> ChatMessageResponse:
+    remote = request.client.host if request.client else "unknown"
     return chat_agent_service.process_message(
         message=payload.message,
         session_id=payload.session_id,
         reset=payload.reset,
+        remote_addr=remote,
     )
 
 
@@ -202,6 +205,16 @@ def authenticate_client(payload: ClientCodeRequest, request: Request) -> ClientC
 
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid client code")
+
+    try:
+        store.create_client_login_event(
+            client_code=profile["client_code"],
+            client_name=profile["client_name"],
+            login_source="api_auth",
+            remote_addr=remote,
+        )
+    except Exception:
+        pass
 
     token = create_client_token(
         client_code=profile["client_code"],
@@ -411,6 +424,21 @@ def admin_get_request_logs(
     for row in rows:
         normalized.append(row)
     return [RequestLogRecord.model_validate(row) for row in normalized]
+
+
+@router.get("/admin/client-login-events", response_model=list[ClientLoginEventRecord], tags=["admin"])
+def admin_get_client_login_events(
+    limit: int = Query(default=50, ge=1, le=500),
+    _: None = Depends(require_admin),
+) -> list[ClientLoginEventRecord]:
+    try:
+        rows = store.list_client_login_events(limit=limit)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Login history is unavailable. Apply the latest database schema and restart backend.",
+        ) from None
+    return [ClientLoginEventRecord.model_validate(row) for row in rows]
 
 
 @router.get("/admin/notifications", response_model=list[AdminNotificationRecord], tags=["admin"])

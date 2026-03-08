@@ -277,6 +277,15 @@ class RequestLogRecord(BaseModel):
     payload: dict[str, Any]
 
 
+class ClientLoginEventRecord(BaseModel):
+    id: str
+    created_at: datetime
+    client_code: str
+    client_name: str
+    login_source: str = "chat"
+    remote_addr: str | None = None
+
+
 class AdminNotificationRecord(BaseModel):
     id: str
     created_at: datetime
