@@ -338,6 +338,7 @@ export default function IntakePage() {
     !isLoadingVoices &&
     Boolean(selectedVoiceId) &&
     availableVoices.length > 0;
+  const canInteractWithVoiceOutput = isVoiceOutputSupported && !isLoadingVoices;
   const voiceToolbarNote = voiceCatalogError
     ? voiceCatalogError
     : !isVoiceOutputSupported
@@ -501,7 +502,7 @@ export default function IntakePage() {
 
   function handleVoiceOutputToggle() {
     clearVoiceError();
-    setVoiceOutputEnabled(!isVoiceOutputEnabled);
+    void setVoiceOutputEnabled(!isVoiceOutputEnabled);
   }
 
   function openNewChatConfirmation() {
@@ -1035,7 +1036,7 @@ export default function IntakePage() {
               onClick={handleVoiceOutputToggle}
               aria-label={isVoiceOutputEnabled ? "Disable AI voice replies" : "Enable AI voice replies"}
               aria-pressed={isVoiceOutputEnabled}
-              disabled={!canEnableVoiceOutput}
+              disabled={!canInteractWithVoiceOutput}
               title={
                 canEnableVoiceOutput
                   ? isVoiceOutputEnabled

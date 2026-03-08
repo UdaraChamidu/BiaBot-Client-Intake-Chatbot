@@ -441,7 +441,81 @@ export function useVoiceAssistant({
     abortPendingTranscription();
   }
 
-  function setVoiceOutputEnabled(enabled) {
+  async function loadVoiceCatalog({ surfaceErrors = false } = {}) {
+    if (!isVoiceOutputSupported) {
+      return { voices: [], nextVoiceId: "" };
+    }
+
+    if (voicesAbortControllerRef.current) {
+      voicesAbortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    voicesAbortControllerRef.current = controller;
+    setIsLoadingVoices(true);
+
+    try {
+      const catalog = await fetchVoiceCatalog({ signal: controller.signal });
+      const voices = Array.isArray(catalog?.voices) ? catalog.voices : [];
+      setAvailableVoices(voices);
+      setVoiceCatalogError("");
+
+      const storedVoiceId = getStoredVoiceId();
+      const defaultVoiceId = String(catalog?.default_voice_id ?? "").trim();
+      const nextVoiceId =
+        voices.find((voice) => voice.voice_id === storedVoiceId)?.voice_id ||
+        voices.find((voice) => voice.voice_id === selectedVoiceId)?.voice_id ||
+        defaultVoiceId ||
+        voices[0]?.voice_id ||
+        "";
+
+      setSelectedVoiceIdState(nextVoiceId);
+      setStoredVoiceId(nextVoiceId);
+
+      if (!nextVoiceId && isVoiceOutputEnabled) {
+        setIsVoiceOutputEnabledState(false);
+        setStoredVoiceOutputEnabled(false);
+      }
+
+      if (surfaceErrors) {
+        if (nextVoiceId) {
+          setVoiceError("");
+        } else {
+          setVoiceError("No ElevenLabs voice is available yet. Check your backend configuration.");
+        }
+      }
+
+      return { voices, nextVoiceId };
+    } catch (error) {
+      if (isCanceledError(error)) {
+        return null;
+      }
+
+      const message = getApiErrorMessage(
+        error,
+        "AI voices are unavailable until ElevenLabs is configured."
+      );
+      setAvailableVoices([]);
+      setSelectedVoiceIdState("");
+      setStoredVoiceId("");
+      setVoiceCatalogError(message);
+      if (surfaceErrors) {
+        setVoiceError(message);
+      }
+      if (isVoiceOutputEnabled) {
+        setIsVoiceOutputEnabledState(false);
+        setStoredVoiceOutputEnabled(false);
+      }
+      return null;
+    } finally {
+      if (voicesAbortControllerRef.current === controller) {
+        voicesAbortControllerRef.current = null;
+      }
+      setIsLoadingVoices(false);
+    }
+  }
+
+  async function setVoiceOutputEnabled(enabled) {
     if (!enabled) {
       setStoredVoiceOutputEnabled(false);
       setIsVoiceOutputEnabledState(false);
@@ -456,8 +530,21 @@ export function useVoiceAssistant({
       return;
     }
 
-    if (!selectedVoiceId) {
-      setVoiceError("No ElevenLabs voice is available yet. Check your backend configuration.");
+    let nextVoiceId = selectedVoiceId;
+    let nextVoiceCount = availableVoices.length;
+
+    if (!nextVoiceId || nextVoiceCount === 0 || voiceCatalogError) {
+      const catalogState = await loadVoiceCatalog({ surfaceErrors: true });
+      if (catalogState) {
+        nextVoiceId = catalogState.nextVoiceId;
+        nextVoiceCount = catalogState.voices.length;
+      }
+    }
+
+    if (!nextVoiceId || nextVoiceCount === 0) {
+      if (!voiceCatalogError) {
+        setVoiceError("No ElevenLabs voice is available yet. Check your backend configuration.");
+      }
       setStoredVoiceOutputEnabled(false);
       setIsVoiceOutputEnabledState(false);
       return;
@@ -480,58 +567,7 @@ export function useVoiceAssistant({
     if (!isVoiceOutputSupported) {
       return;
     }
-
-    const controller = new AbortController();
-    voicesAbortControllerRef.current = controller;
-    setIsLoadingVoices(true);
-
-    void fetchVoiceCatalog({ signal: controller.signal })
-      .then((catalog) => {
-        const voices = Array.isArray(catalog?.voices) ? catalog.voices : [];
-        setAvailableVoices(voices);
-        setVoiceCatalogError("");
-
-        const storedVoiceId = getStoredVoiceId();
-        const defaultVoiceId = String(catalog?.default_voice_id ?? "").trim();
-        const nextVoiceId =
-          voices.find((voice) => voice.voice_id === storedVoiceId)?.voice_id ||
-          voices.find((voice) => voice.voice_id === selectedVoiceId)?.voice_id ||
-          defaultVoiceId ||
-          voices[0]?.voice_id ||
-          "";
-
-        setSelectedVoiceIdState(nextVoiceId);
-        setStoredVoiceId(nextVoiceId);
-
-        if (!nextVoiceId && isVoiceOutputEnabled) {
-          setIsVoiceOutputEnabledState(false);
-          setStoredVoiceOutputEnabled(false);
-        }
-      })
-      .catch((error) => {
-        if (isCanceledError(error)) {
-          return;
-        }
-        setAvailableVoices([]);
-        setSelectedVoiceIdState("");
-        setStoredVoiceId("");
-        setVoiceCatalogError(
-          getApiErrorMessage(
-            error,
-            "AI voices are unavailable until ElevenLabs is configured."
-          )
-        );
-        if (isVoiceOutputEnabled) {
-          setIsVoiceOutputEnabledState(false);
-          setStoredVoiceOutputEnabled(false);
-        }
-      })
-      .finally(() => {
-        if (voicesAbortControllerRef.current === controller) {
-          voicesAbortControllerRef.current = null;
-        }
-        setIsLoadingVoices(false);
-      });
+    void loadVoiceCatalog();
   }, [isVoiceOutputSupported]);
 
   useEffect(() => {

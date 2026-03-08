@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -48,6 +49,7 @@ RULE_ACCEPT_CONFIDENCE = 0.86
 LLM_ACCEPT_CONFIDENCE = 0.78
 CLARIFY_CONFIDENCE = 0.55
 ACTION_ACCEPT_CONFIDENCE = 0.68
+logger = logging.getLogger(__name__)
 
 CLIENT_CODE_PROMPT = "Let's get you into your workspace. Enter your client code below."
 CLIENT_CODE_RETRY_PROMPT = "That code doesn't match our records. Double-check it or contact your BiAgent."
@@ -280,7 +282,12 @@ class ChatAgentService:
                 remote_addr=remote_addr,
             )
         except Exception:
-            # Login auditing should not block the client from entering the workspace.
+            logger.warning(
+                "Failed to persist client login event via %s for %s",
+                login_source,
+                str(profile.get("client_code") or "").strip().upper(),
+                exc_info=True,
+            )
             return
 
     def _handle_service_selection(self, session: ChatSession, message: str) -> ChatMessageResponse:

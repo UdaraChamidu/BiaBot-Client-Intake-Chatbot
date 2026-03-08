@@ -1,5 +1,6 @@
 """API routes for auth, intake, and admin functions."""
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
@@ -51,6 +52,7 @@ from app.services.voice.elevenlabs_service import ElevenLabsService
 router = APIRouter()
 settings = get_settings()
 store = get_store()
+logger = logging.getLogger(__name__)
 openai_service = OpenAIService()
 monday_service = MondayService()
 deepgram_service = DeepgramService()
@@ -214,7 +216,11 @@ def authenticate_client(payload: ClientCodeRequest, request: Request) -> ClientC
             remote_addr=remote,
         )
     except Exception:
-        pass
+        logger.warning(
+            "Failed to persist client login event via /auth/client-code for %s",
+            profile["client_code"],
+            exc_info=True,
+        )
 
     token = create_client_token(
         client_code=profile["client_code"],
