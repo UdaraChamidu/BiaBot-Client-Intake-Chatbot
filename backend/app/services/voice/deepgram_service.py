@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class DeepgramService:
@@ -15,7 +18,13 @@ class DeepgramService:
 
     @property
     def available(self) -> bool:
-        return bool(self.settings.voice_enabled and self.settings.deepgram_api_key)
+        has_key = bool(self.settings.deepgram_api_key)
+        enabled = bool(self.settings.voice_enabled)
+        if not enabled:
+            logger.warning("Deepgram STT unavailable: voice_enabled is False")
+        if not has_key:
+            logger.warning("Deepgram STT unavailable: deepgram_api_key is not set")
+        return enabled and has_key
 
     async def transcribe_audio(
         self,
@@ -52,7 +61,9 @@ class DeepgramService:
             )
 
         if response.status_code >= 400:
-            raise RuntimeError(self._extract_error_message(response))
+            error_msg = self._extract_error_message(response)
+            logger.error("Deepgram API error (HTTP %s): %s", response.status_code, error_msg)
+            raise RuntimeError(error_msg)
 
         payload = response.json()
         results = payload.get("results") or {}

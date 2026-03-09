@@ -1,12 +1,23 @@
 """FastAPI entrypoint for the Bianomics intake backend."""
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.routes import router as api_v1_router
 from app.core.config import get_settings
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
+
+# Log voice configuration status at startup
+logger.info("Voice enabled: %s", settings.voice_enabled)
+logger.info("Deepgram API key configured: %s", bool(settings.deepgram_api_key))
+logger.info("ElevenLabs API key configured: %s", bool(settings.elevenlabs_api_key))
+logger.info("ElevenLabs voice ID: %s", settings.elevenlabs_voice_id)
 
 app = FastAPI(
     title=settings.app_name,

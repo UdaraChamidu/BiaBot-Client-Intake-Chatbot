@@ -80,6 +80,25 @@ def chat_message(payload: ChatMessageRequest, request: Request) -> ChatMessageRe
     )
 
 
+@router.get("/voice/health", tags=["voice"])
+async def voice_health_check() -> dict[str, Any]:
+    """Diagnostic endpoint to verify voice service configuration in production."""
+    deepgram_key = settings.deepgram_api_key
+    elevenlabs_key = settings.elevenlabs_api_key
+    return {
+        "voice_enabled": settings.voice_enabled,
+        "deepgram_configured": bool(deepgram_key),
+        "deepgram_key_prefix": deepgram_key[:6] + "..." if deepgram_key else None,
+        "deepgram_model": settings.deepgram_model,
+        "elevenlabs_configured": bool(elevenlabs_key),
+        "elevenlabs_key_prefix": elevenlabs_key[:6] + "..." if elevenlabs_key else None,
+        "elevenlabs_voice_id": settings.elevenlabs_voice_id,
+        "elevenlabs_model_id": settings.elevenlabs_model_id,
+        "stt_service_available": deepgram_service.available,
+        "tts_service_available": elevenlabs_service.available,
+    }
+
+
 @router.get("/voice/voices", response_model=VoiceCatalogResponse, tags=["voice"])
 async def list_voice_options(request: Request) -> VoiceCatalogResponse:
     remote = request.client.host if request.client else "unknown"
