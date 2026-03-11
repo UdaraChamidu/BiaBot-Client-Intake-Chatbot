@@ -47,7 +47,7 @@ const PRIORITY_FEMALE_VOICE_HINTS = [
 ];
 const SPOKEN_TERM_OVERRIDES = [
   { pattern: /\bbianomics\b/gi, replacement: "Bee uh nomics" },
-  { pattern: /\bbiabot\b/gi, replacement: "Bee uh Bot" },
+  { pattern: /\bbiabot\b/gi, replacement: "Bee-ah Bot" },
   { pattern: /\bsupabase\b/gi, replacement: "Soo puh base" },
   { pattern: /\bdeepgram\b/gi, replacement: "Deep Gram" },
   { pattern: /\bopenai\b/gi, replacement: "Open A I" },
