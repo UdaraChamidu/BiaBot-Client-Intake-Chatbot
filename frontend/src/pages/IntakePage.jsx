@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
+import { downloadClientSessionPdf } from "../services/pdfService";
 import { sendChatMessage } from "../services/intakeService";
 import { getStoredTheme, toggleTheme } from "../utils/theme";
 
@@ -276,6 +277,7 @@ export default function IntakePage() {
   const [isSummaryPreviewMode, setIsSummaryPreviewMode] = useState(() =>
     restoredChatSession?.isSummaryPreviewMode ?? false
   );
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isNewChatConfirmOpen, setIsNewChatConfirmOpen] = useState(false);
 
   const chatWindowRef = useRef(null);
@@ -538,6 +540,33 @@ export default function IntakePage() {
       }
     }
     await submitMessage("Submit");
+  }
+
+  async function handleDownloadPdf() {
+    if (
+      phase !== "await_confirmation" ||
+      !sessionId ||
+      !summaryDraft.trim() ||
+      isBusy ||
+      isRecording ||
+      isTranscribing ||
+      isDownloadingPdf
+    ) {
+      return;
+    }
+    if (isSummaryPreviewMode) {
+      pushBotMessage("PDF download is disabled while the local test summary preview is active.");
+      return;
+    }
+
+    setIsDownloadingPdf(true);
+    try {
+      await downloadClientSessionPdf(sessionId, summaryDraft.trim());
+    } catch {
+      pushBotMessage("I could not download the PDF right now. Please try again.");
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   }
 
   function loadSummaryPreview() {
@@ -1211,6 +1240,14 @@ export default function IntakePage() {
               />
             )}
             <div className="summary-editor-actions">
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={handleDownloadPdf}
+                disabled={isBusy || isRecording || isTranscribing || !summaryDraft.trim() || isDownloadingPdf}
+              >
+                {isDownloadingPdf ? "Preparing PDF..." : "Download PDF"}
+              </button>
               <button
                 type="button"
                 className="ghost-btn"

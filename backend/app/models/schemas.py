@@ -180,6 +180,10 @@ class ChatMessageRequest(BaseModel):
     reset: bool = False
 
 
+class ChatSessionPdfRequest(BaseModel):
+    summary: str | None = Field(default=None, max_length=20000)
+
+
 class ChatMessageResponse(BaseModel):
     session_id: str
     assistant_message: str
@@ -257,6 +261,17 @@ class RequestLogRecord(BaseModel):
     summary: str
     monday_item_id: str | None = None
     payload: dict[str, Any]
+
+
+class AdminRequestLogPdfRequest(BaseModel):
+    client_code: str
+    client_name: str
+    service_type: str
+    project_title: str
+    summary: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    monday_item_id: str | None = None
+    created_at: datetime | None = None
 
 
 class ClientLoginEventRecord(BaseModel):

@@ -15,6 +15,7 @@ import {
   upsertClientProfile,
   verifyAdminPassword,
 } from "../services/adminService";
+import { downloadAdminRequestPdf } from "../services/pdfService";
 import { getStoredTheme, toggleTheme } from "../utils/theme";
 
 const NEW_PROFILE_ID = "__new__";
@@ -422,6 +423,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [downloadingRequestId, setDownloadingRequestId] = useState("");
 
   const [profiles, setProfiles] = useState([]);
   const [selectedClientCode, setSelectedClientCode] = useState(NEW_PROFILE_ID);
@@ -1110,6 +1112,25 @@ export default function AdminPage() {
       setError(toErrorText(requestError, "Unable to load audit logs."));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDownloadRequestPdf(submission) {
+    const requestId = String(submission?.id ?? "").trim();
+    if (!adminPassword || !requestId || downloadingRequestId === requestId) {
+      return;
+    }
+
+    setDownloadingRequestId(requestId);
+    setError("");
+    setNotice("");
+    try {
+      await downloadAdminRequestPdf(adminPassword, submission);
+      setNotice("Client PDF download started.");
+    } catch (requestError) {
+      setError(toErrorText(requestError, "Unable to download the client PDF."));
+    } finally {
+      setDownloadingRequestId("");
     }
   }
 
@@ -2105,6 +2126,16 @@ export default function AdminPage() {
                                   <p className="client-submission-summary">
                                     <strong>Summary:</strong> {displayValue(submission.summary)}
                                   </p>
+                                  <div className="admin-row">
+                                    <button
+                                      type="button"
+                                      className="ghost-btn"
+                                      onClick={() => handleDownloadRequestPdf(submission)}
+                                      disabled={downloadingRequestId === submission.id}
+                                    >
+                                      {downloadingRequestId === submission.id ? "Preparing PDF..." : "Download PDF"}
+                                    </button>
+                                  </div>
                                 </details>
                               );
                             })}

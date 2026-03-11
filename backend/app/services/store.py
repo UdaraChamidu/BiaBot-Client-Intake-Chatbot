@@ -75,6 +75,12 @@ class InMemoryStore:
     def list_request_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         return self.request_logs[:limit]
 
+    def get_request_log(self, request_id: str) -> dict[str, Any] | None:
+        for row in self.request_logs:
+            if str(row.get("id")) == request_id:
+                return row
+        return None
+
     def create_client_login_event(
         self,
         *,
@@ -244,6 +250,17 @@ class SupabaseStore:
             .execute()
         )
         return response.data or []
+
+    def get_request_log(self, request_id: str) -> dict[str, Any] | None:
+        response = (
+            self.client.table("request_logs")
+            .select("*")
+            .eq("id", request_id)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data or []
+        return rows[0] if rows else None
 
     def create_client_login_event(
         self,

@@ -883,20 +883,7 @@ class ChatAgentService:
                 openai_service=self.openai_service,
             )
             payload_for_monday = payload.model_dump(mode="json")
-            captured_answers: dict[str, Any] = {}
-            for key, value in session.answers.items():
-                if isinstance(value, list):
-                    captured_answers[key] = [str(item).strip() for item in value if str(item).strip()]
-                elif isinstance(value, str):
-                    captured_answers[key] = value.strip()
-                elif value is None:
-                    captured_answers[key] = ""
-                else:
-                    captured_answers[key] = value
-            payload_for_store = {
-                **payload_for_monday,
-                "captured_answers": captured_answers,
-            }
+            payload_for_store = self._build_payload_for_store(payload=payload, answers=session.answers)
             monday_result = self.monday_service.create_item(
                 client_profile=profile,
                 payload=payload_for_monday,
@@ -1000,6 +987,39 @@ class ChatAgentService:
             suggestions=["Start New Request"],
             profile=profile,
         )
+
+    def get_export_data(self, session_id: str, *, summary_override: str | None = None) -> dict[str, Any] | None:
+        session = self.sessions.get(session_id)
+        if not session or session.phase not in {"await_confirmation", "done"}:
+            return None
+
+        profile = session.client_profile
+        if not profile:
+            return None
+
+        try:
+            payload = self._build_submission_payload(session)
+        except Exception:
+            return None
+
+        summary_text = str(summary_override or session.summary or "").strip()
+        if not summary_text:
+            summary_text = generate_summary(
+                client_profile=profile,
+                payload=payload,
+                openai_service=self.openai_service,
+            )
+
+        return {
+            "client_name": profile.get("client_name"),
+            "client_code": profile.get("client_code"),
+            "service_type": payload.service_type,
+            "project_title": payload.project_title,
+            "summary": summary_text,
+            "payload": self._build_payload_for_store(payload=payload, answers=session.answers),
+            "monday_item_id": None,
+            "created_at": None,
+        }
 
     def _build_question_queue(self, service_type: str) -> list[IntakeQuestion]:
         branch = BRANCH_QUESTIONS.get(service_type) or BRANCH_QUESTIONS.get("Other", [])
@@ -1320,6 +1340,25 @@ class ChatAgentService:
             "notes": answers.get("notes") or None,
         }
         return IntakeSubmission.model_validate(payload)
+
+    def _serialize_answers(self, answers: dict[str, Any]) -> dict[str, Any]:
+        captured_answers: dict[str, Any] = {}
+        for key, value in answers.items():
+            if isinstance(value, list):
+                captured_answers[key] = [str(item).strip() for item in value if str(item).strip()]
+            elif isinstance(value, str):
+                captured_answers[key] = value.strip()
+            elif value is None:
+                captured_answers[key] = ""
+            else:
+                captured_answers[key] = value
+        return captured_answers
+
+    def _build_payload_for_store(self, *, payload: IntakeSubmission, answers: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **payload.model_dump(mode="json"),
+            "captured_answers": self._serialize_answers(answers),
+        }
 
     def _coerce_list(self, value: Any) -> list[str]:
         if value is None:

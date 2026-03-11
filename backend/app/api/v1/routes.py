@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limiter
@@ -18,8 +18,10 @@ from app.models.schemas import (
     AdminNotificationRecord,
     AdminAuthRequest,
     AdminAuthResponse,
+    AdminRequestLogPdfRequest,
     ChatMessageRequest,
     ChatMessageResponse,
+    ChatSessionPdfRequest,
     ClientCodeRequest,
     ClientLoginEventRecord,
     ClientCodeResponse,
@@ -40,6 +42,7 @@ from app.models.schemas import (
 from app.services.chat_agent_service import ChatAgentService
 from app.services.chat_parser import extract_client_code_candidates, normalize_answer
 from app.services.flow_definitions import BRANCH_QUESTIONS, CORE_QUESTIONS
+from app.services.intake_pdf_service import IntakePdfService
 from app.services.intake_service import generate_summary
 from app.services.monday_service import MondayService
 from app.services.openai_service import OpenAIService
@@ -53,6 +56,7 @@ logger = logging.getLogger(__name__)
 openai_service = OpenAIService()
 monday_service = MondayService()
 deepgram_service = DeepgramService()
+intake_pdf_service = IntakePdfService()
 chat_agent_service = ChatAgentService(
     store=store,
     openai_service=openai_service,
@@ -73,6 +77,27 @@ def chat_message(payload: ChatMessageRequest, request: Request) -> ChatMessageRe
         session_id=payload.session_id,
         reset=payload.reset,
         remote_addr=remote,
+    )
+
+
+@router.post("/chat/sessions/{session_id}/pdf", tags=["chat"])
+def download_chat_session_pdf(session_id: str, payload: ChatSessionPdfRequest | None = None) -> Response:
+    export_data = chat_agent_service.get_export_data(
+        session_id,
+        summary_override=(payload.summary if payload else None),
+    )
+    if not export_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session export is unavailable. Finish the intake summary first.",
+        )
+
+    filename = intake_pdf_service.build_filename(export_data)
+    pdf_bytes = intake_pdf_service.build_pdf(export_data)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -383,6 +408,55 @@ def admin_get_request_logs(
     for row in rows:
         normalized.append(row)
     return [RequestLogRecord.model_validate(row) for row in normalized]
+
+
+@router.get("/admin/request-logs/{request_id}/pdf", tags=["admin"])
+def admin_download_request_log_pdf(request_id: str, _: None = Depends(require_admin)) -> Response:
+    row = store.get_request_log(request_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request log not found")
+
+    export_data = {
+        "client_name": row.get("client_name"),
+        "client_code": row.get("client_code"),
+        "service_type": row.get("service_type"),
+        "project_title": row.get("project_title"),
+        "summary": row.get("summary"),
+        "payload": row.get("payload"),
+        "monday_item_id": row.get("monday_item_id"),
+        "created_at": row.get("created_at"),
+    }
+    filename = intake_pdf_service.build_filename(export_data)
+    pdf_bytes = intake_pdf_service.build_pdf(export_data)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/admin/request-logs/pdf", tags=["admin"])
+def admin_generate_request_log_pdf(
+    payload: AdminRequestLogPdfRequest,
+    _: None = Depends(require_admin),
+) -> Response:
+    export_data = {
+        "client_name": payload.client_name,
+        "client_code": payload.client_code,
+        "service_type": payload.service_type,
+        "project_title": payload.project_title,
+        "summary": payload.summary,
+        "payload": payload.payload,
+        "monday_item_id": payload.monday_item_id,
+        "created_at": payload.created_at,
+    }
+    filename = intake_pdf_service.build_filename(export_data)
+    pdf_bytes = intake_pdf_service.build_pdf(export_data)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/admin/client-login-events", response_model=list[ClientLoginEventRecord], tags=["admin"])
