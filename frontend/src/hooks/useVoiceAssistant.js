@@ -1,20 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
-  getStoredVoiceId,
   getStoredVoiceOutputEnabled,
   isVoiceInputSupported as browserSupportsVoiceInput,
   isVoiceOutputSupported as browserSupportsVoiceOutput,
   mergeComposerText,
+  normalizeTextForSpeech,
+  pickPreferredSpeechSynthesisVoice,
   pickSupportedRecordingMimeType,
-  setStoredVoiceId,
   setStoredVoiceOutputEnabled,
+  waitForSpeechSynthesisVoices,
 } from "../services/browserVoice";
-import {
-  fetchVoiceCatalog,
-  synthesizeVoiceAudio,
-  transcribeVoiceRecording,
-} from "../services/voiceService";
+import { transcribeVoiceRecording } from "../services/voiceService";
 
 const VOICE_INPUT_UNSUPPORTED_MESSAGE =
   "Voice input is not supported in this browser. Use a recent Chrome or Edge build.";
@@ -40,16 +37,6 @@ function getApiErrorMessage(error, fallbackMessage) {
     return error.message.trim();
   }
   return fallbackMessage;
-}
-
-function isPlaybackInterruptionError(error) {
-  const errorName = String(error?.name ?? "").trim();
-  const errorMessage = String(error?.message ?? "").trim().toLowerCase();
-  return (
-    errorName === "AbortError" ||
-    errorMessage.includes("interrupted by a call to pause") ||
-    errorMessage.includes("interrupted by a new load request")
-  );
 }
 
 function stopMediaStream(stream) {
@@ -93,13 +80,10 @@ export function useVoiceAssistant({
   const baseInputValueRef = useRef("");
   const previewTranscriptRef = useRef("");
   const lastInjectedInputValueRef = useRef("");
-  const audioElementRef = useRef(null);
-  const audioObjectUrlRef = useRef("");
   const lastSpokenMessageIdRef = useRef("");
-  const voicesAbortControllerRef = useRef(null);
+  const speechPlaybackIdRef = useRef(0);
   const previewAbortControllerRef = useRef(null);
   const transcriptionAbortControllerRef = useRef(null);
-  const synthesisAbortControllerRef = useRef(null);
   const previewRequestInFlightRef = useRef(false);
   const previewRequestQueuedRef = useRef(false);
   const lastPreviewRequestedAtRef = useRef(0);
@@ -109,11 +93,7 @@ export function useVoiceAssistant({
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isLoadingVoices, setIsLoadingVoices] = useState(false);
   const [voiceError, setVoiceError] = useState("");
-  const [voiceCatalogError, setVoiceCatalogError] = useState("");
-  const [availableVoices, setAvailableVoices] = useState([]);
-  const [selectedVoiceId, setSelectedVoiceIdState] = useState(() => getStoredVoiceId());
   const [isVoiceOutputEnabled, setIsVoiceOutputEnabledState] = useState(() =>
     browserSupportsVoiceOutput() && getStoredVoiceOutputEnabled()
   );
@@ -129,28 +109,18 @@ export function useVoiceAssistant({
     onInputValueChangeRef.current = onInputValueChange;
   }, [onInputValueChange]);
 
-  function clearAudioPlayback() {
-    if (audioElementRef.current) {
-      audioElementRef.current.onended = null;
-      audioElementRef.current.onerror = null;
-      audioElementRef.current.pause();
-      audioElementRef.current.removeAttribute("src");
-      audioElementRef.current.load?.();
-      audioElementRef.current = null;
+  function cancelSpeechPlayback(advancePlaybackId = true) {
+    if (advancePlaybackId) {
+      speechPlaybackIdRef.current += 1;
     }
-    if (audioObjectUrlRef.current) {
-      URL.revokeObjectURL(audioObjectUrlRef.current);
-      audioObjectUrlRef.current = "";
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
     }
+    setIsSpeaking(false);
   }
 
   function stopSpeaking() {
-    if (synthesisAbortControllerRef.current) {
-      synthesisAbortControllerRef.current.abort();
-      synthesisAbortControllerRef.current = null;
-    }
-    clearAudioPlayback();
-    setIsSpeaking(false);
+    cancelSpeechPlayback(true);
   }
 
   function abortPendingTranscription() {
@@ -441,80 +411,6 @@ export function useVoiceAssistant({
     abortPendingTranscription();
   }
 
-  async function loadVoiceCatalog({ surfaceErrors = false } = {}) {
-    if (!isVoiceOutputSupported) {
-      return { voices: [], nextVoiceId: "" };
-    }
-
-    if (voicesAbortControllerRef.current) {
-      voicesAbortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    voicesAbortControllerRef.current = controller;
-    setIsLoadingVoices(true);
-
-    try {
-      const catalog = await fetchVoiceCatalog({ signal: controller.signal });
-      const voices = Array.isArray(catalog?.voices) ? catalog.voices : [];
-      setAvailableVoices(voices);
-      setVoiceCatalogError("");
-
-      const storedVoiceId = getStoredVoiceId();
-      const defaultVoiceId = String(catalog?.default_voice_id ?? "").trim();
-      const nextVoiceId =
-        voices.find((voice) => voice.voice_id === storedVoiceId)?.voice_id ||
-        voices.find((voice) => voice.voice_id === selectedVoiceId)?.voice_id ||
-        defaultVoiceId ||
-        voices[0]?.voice_id ||
-        "";
-
-      setSelectedVoiceIdState(nextVoiceId);
-      setStoredVoiceId(nextVoiceId);
-
-      if (!nextVoiceId && isVoiceOutputEnabled) {
-        setIsVoiceOutputEnabledState(false);
-        setStoredVoiceOutputEnabled(false);
-      }
-
-      if (surfaceErrors) {
-        if (nextVoiceId) {
-          setVoiceError("");
-        } else {
-          setVoiceError("No ElevenLabs voice is available yet. Check your backend configuration.");
-        }
-      }
-
-      return { voices, nextVoiceId };
-    } catch (error) {
-      if (isCanceledError(error)) {
-        return null;
-      }
-
-      const message = getApiErrorMessage(
-        error,
-        "AI voices are unavailable until ElevenLabs is configured."
-      );
-      setAvailableVoices([]);
-      setSelectedVoiceIdState("");
-      setStoredVoiceId("");
-      setVoiceCatalogError(message);
-      if (surfaceErrors) {
-        setVoiceError(message);
-      }
-      if (isVoiceOutputEnabled) {
-        setIsVoiceOutputEnabledState(false);
-        setStoredVoiceOutputEnabled(false);
-      }
-      return null;
-    } finally {
-      if (voicesAbortControllerRef.current === controller) {
-        voicesAbortControllerRef.current = null;
-      }
-      setIsLoadingVoices(false);
-    }
-  }
-
   async function setVoiceOutputEnabled(enabled) {
     if (!enabled) {
       setStoredVoiceOutputEnabled(false);
@@ -524,27 +420,7 @@ export function useVoiceAssistant({
     }
 
     if (!isVoiceOutputSupported) {
-      setVoiceError("Audio playback is not supported in this browser.");
-      setStoredVoiceOutputEnabled(false);
-      setIsVoiceOutputEnabledState(false);
-      return;
-    }
-
-    let nextVoiceId = selectedVoiceId;
-    let nextVoiceCount = availableVoices.length;
-
-    if (!nextVoiceId || nextVoiceCount === 0 || voiceCatalogError) {
-      const catalogState = await loadVoiceCatalog({ surfaceErrors: true });
-      if (catalogState) {
-        nextVoiceId = catalogState.nextVoiceId;
-        nextVoiceCount = catalogState.voices.length;
-      }
-    }
-
-    if (!nextVoiceId || nextVoiceCount === 0) {
-      if (!voiceCatalogError) {
-        setVoiceError("No ElevenLabs voice is available yet. Check your backend configuration.");
-      }
+      setVoiceError("AI voice output is not supported in this browser.");
       setStoredVoiceOutputEnabled(false);
       setIsVoiceOutputEnabledState(false);
       return;
@@ -556,22 +432,8 @@ export function useVoiceAssistant({
     setVoiceError("");
   }
 
-  function selectVoice(voiceId) {
-    const normalizedVoiceId = String(voiceId ?? "").trim();
-    setStoredVoiceId(normalizedVoiceId);
-    setSelectedVoiceIdState(normalizedVoiceId);
-    lastSpokenMessageIdRef.current = "";
-  }
-
   useEffect(() => {
-    if (!isVoiceOutputSupported) {
-      return;
-    }
-    void loadVoiceCatalog();
-  }, [isVoiceOutputSupported]);
-
-  useEffect(() => {
-    if (!isVoiceOutputEnabled || !isVoiceOutputSupported || !selectedVoiceId) {
+    if (!isVoiceOutputEnabled || !isVoiceOutputSupported) {
       return;
     }
 
@@ -584,52 +446,70 @@ export function useVoiceAssistant({
     }
 
     lastSpokenMessageIdRef.current = latestBotMessage.id;
-    stopSpeaking();
+    const playbackId = speechPlaybackIdRef.current + 1;
+    speechPlaybackIdRef.current = playbackId;
+    cancelSpeechPlayback(false);
 
-    const controller = new AbortController();
-    synthesisAbortControllerRef.current = controller;
+    const normalizedText = normalizeTextForSpeech(latestBotMessage.text);
+    if (!normalizedText) {
+      return;
+    }
 
-    void synthesizeVoiceAudio(
-      {
-        text: latestBotMessage.text,
-        voiceId: selectedVoiceId,
-      },
-      { signal: controller.signal }
-    )
-      .then(async ({ audioBlob }) => {
-        if (controller.signal.aborted) {
+    let cancelled = false;
+
+    void waitForSpeechSynthesisVoices()
+      .then((voices) => {
+        if (
+          cancelled ||
+          speechPlaybackIdRef.current !== playbackId ||
+          typeof window === "undefined" ||
+          !window.speechSynthesis
+        ) {
           return;
         }
 
-        clearAudioPlayback();
-        const objectUrl = URL.createObjectURL(audioBlob);
-        audioObjectUrlRef.current = objectUrl;
+        const utterance = new window.SpeechSynthesisUtterance(normalizedText);
+        const preferredVoice = pickPreferredSpeechSynthesisVoice(voices);
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+          utterance.lang = preferredVoice.lang || "en-US";
+        } else {
+          utterance.lang = "en-US";
+        }
 
-        const audio = new Audio(objectUrl);
-        audioElementRef.current = audio;
-        audio.onended = () => {
-          if (audioElementRef.current !== audio) {
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        utterance.onstart = () => {
+          if (cancelled || speechPlaybackIdRef.current !== playbackId) {
+            return;
+          }
+          setIsSpeaking(true);
+        };
+        utterance.onend = () => {
+          if (cancelled || speechPlaybackIdRef.current !== playbackId) {
             return;
           }
           setIsSpeaking(false);
         };
-        audio.onerror = () => {
-          if (audioElementRef.current !== audio) {
+        utterance.onerror = (event) => {
+          if (cancelled || speechPlaybackIdRef.current !== playbackId) {
             return;
           }
+          const errorCode = String(event?.error ?? "").toLowerCase();
           setIsSpeaking(false);
-          clearAudioPlayback();
+          if (errorCode === "canceled" || errorCode === "interrupted") {
+            return;
+          }
           setVoiceError("AI voice playback failed. You can continue reading the text reply.");
         };
 
-        setIsSpeaking(true);
-        await audio.play();
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
       })
       .catch((error) => {
-        if (isCanceledError(error) || isPlaybackInterruptionError(error)) {
+        if (cancelled) {
           return;
         }
-        clearAudioPlayback();
         setIsSpeaking(false);
         setVoiceError(
           getApiErrorMessage(
@@ -638,14 +518,17 @@ export function useVoiceAssistant({
           )
         );
       });
-  }, [isVoiceOutputEnabled, isVoiceOutputSupported, latestBotMessage, selectedVoiceId]);
+
+    return () => {
+      cancelled = true;
+      if (speechPlaybackIdRef.current === playbackId) {
+        cancelSpeechPlayback(false);
+      }
+    };
+  }, [isVoiceOutputEnabled, isVoiceOutputSupported, latestBotMessage]);
 
   useEffect(
     () => () => {
-      if (voicesAbortControllerRef.current) {
-        voicesAbortControllerRef.current.abort();
-        voicesAbortControllerRef.current = null;
-      }
       if (previewAbortControllerRef.current) {
         previewAbortControllerRef.current.abort();
         previewAbortControllerRef.current = null;
@@ -653,10 +536,6 @@ export function useVoiceAssistant({
       if (transcriptionAbortControllerRef.current) {
         transcriptionAbortControllerRef.current.abort();
         transcriptionAbortControllerRef.current = null;
-      }
-      if (synthesisAbortControllerRef.current) {
-        synthesisAbortControllerRef.current.abort();
-        synthesisAbortControllerRef.current = null;
       }
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         try {
@@ -668,20 +547,13 @@ export function useVoiceAssistant({
       stopMediaStream(streamRef.current);
       streamRef.current = null;
       recorderRef.current = null;
-      clearAudioPlayback();
+      cancelSpeechPlayback(true);
     },
     []
   );
 
-  const selectedVoice = useMemo(
-    () => availableVoices.find((voice) => voice.voice_id === selectedVoiceId) || null,
-    [availableVoices, selectedVoiceId]
-  );
-
   return {
-    availableVoices,
     clearVoiceError: () => setVoiceError(""),
-    isLoadingVoices,
     isRecording,
     isSpeaking,
     isTranscribing,
@@ -689,14 +561,10 @@ export function useVoiceAssistant({
     isVoiceOutputEnabled,
     isVoiceOutputSupported,
     cancelPendingVoiceTranscription,
-    selectedVoice,
-    selectedVoiceId,
-    setSelectedVoiceId: selectVoice,
     setVoiceOutputEnabled,
     stopRecording,
     stopSpeaking,
     toggleRecording,
-    voiceCatalogError,
     voiceError,
   };
 }

@@ -53,13 +53,6 @@ class Settings(BaseSettings):
     deepgram_smart_format: bool = True
     deepgram_punctuate: bool = True
 
-    elevenlabs_api_key: str | None = None
-    elevenlabs_api_url: str = "https://api.elevenlabs.io"
-    elevenlabs_voice_id: str | None = None
-    elevenlabs_model_id: str = "eleven_flash_v2_5"
-    elevenlabs_output_format: str = "mp3_44100_128"
-    elevenlabs_language_code: str | None = None
-
     intake_system_prompt: str = (
         "You are an intake assistant. Stay in intake mode only. "
         "Ask and organize project request information only. "

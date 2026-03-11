@@ -1,11 +1,37 @@
 const VOICE_OUTPUT_STORAGE_KEY = "biabot-voice-output-enabled";
-const VOICE_ID_STORAGE_KEY = "biabot-voice-id";
 const RECORDING_MIME_TYPES = [
   "audio/webm;codecs=opus",
   "audio/webm",
   "audio/mp4",
   "audio/ogg;codecs=opus",
   "audio/ogg",
+];
+const FEMALE_VOICE_HINTS = [
+  "female",
+  "woman",
+  "girl",
+  "aria",
+  "ava",
+  "bella",
+  "emma",
+  "hazel",
+  "jenny",
+  "joanna",
+  "kendra",
+  "kimberly",
+  "laura",
+  "libby",
+  "mia",
+  "olivia",
+  "rachel",
+  "salli",
+  "samantha",
+  "sarah",
+  "sofia",
+  "sonia",
+  "susan",
+  "victoria",
+  "zira",
 ];
 
 function hasWindow() {
@@ -26,25 +52,6 @@ export function setStoredVoiceOutputEnabled(enabled) {
   window.localStorage.setItem(VOICE_OUTPUT_STORAGE_KEY, enabled ? "true" : "false");
 }
 
-export function getStoredVoiceId() {
-  if (!hasWindow()) {
-    return "";
-  }
-  return window.localStorage.getItem(VOICE_ID_STORAGE_KEY) || "";
-}
-
-export function setStoredVoiceId(voiceId) {
-  if (!hasWindow()) {
-    return;
-  }
-  const normalizedVoiceId = String(voiceId ?? "").trim();
-  if (!normalizedVoiceId) {
-    window.localStorage.removeItem(VOICE_ID_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(VOICE_ID_STORAGE_KEY, normalizedVoiceId);
-}
-
 export function isVoiceInputSupported() {
   return Boolean(
     hasWindow() &&
@@ -54,7 +61,11 @@ export function isVoiceInputSupported() {
 }
 
 export function isVoiceOutputSupported() {
-  return Boolean(hasWindow() && typeof window.Audio !== "undefined");
+  return Boolean(
+    hasWindow() &&
+      typeof window.speechSynthesis !== "undefined" &&
+      typeof window.SpeechSynthesisUtterance !== "undefined"
+  );
 }
 
 export function pickSupportedRecordingMimeType() {
@@ -107,4 +118,75 @@ export function normalizeTextForSpeech(text) {
     .replace(/[#>*_]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function pickPreferredSpeechSynthesisVoice(voices) {
+  const voiceList = Array.isArray(voices) ? voices : [];
+  if (voiceList.length === 0) {
+    return null;
+  }
+
+  return [...voiceList]
+    .map((voice) => ({
+      score: scoreSpeechSynthesisVoice(voice),
+      voice,
+    }))
+    .sort((left, right) => right.score - left.score)[0]?.voice || null;
+}
+
+export function waitForSpeechSynthesisVoices(timeoutMs = 1500) {
+  if (!isVoiceOutputSupported()) {
+    return Promise.resolve([]);
+  }
+
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    return Promise.resolve(voices);
+  }
+
+  return new Promise((resolve) => {
+    let completed = false;
+
+    function finish() {
+      if (completed) {
+        return;
+      }
+      completed = true;
+      if (typeof window.speechSynthesis.removeEventListener === "function") {
+        window.speechSynthesis.removeEventListener("voiceschanged", handleVoicesChanged);
+      }
+      resolve(window.speechSynthesis.getVoices());
+    }
+
+    function handleVoicesChanged() {
+      finish();
+    }
+
+    if (typeof window.speechSynthesis.addEventListener === "function") {
+      window.speechSynthesis.addEventListener("voiceschanged", handleVoicesChanged);
+    }
+
+    window.setTimeout(finish, timeoutMs);
+  });
+}
+
+function scoreSpeechSynthesisVoice(voice) {
+  const name = String(voice?.name ?? "").toLowerCase();
+  const lang = String(voice?.lang ?? "").toLowerCase();
+  let score = 0;
+
+  if (lang.startsWith("en")) {
+    score += 20;
+  }
+  if (voice?.localService) {
+    score += 8;
+  }
+  if (voice?.default) {
+    score += 4;
+  }
+  if (FEMALE_VOICE_HINTS.some((hint) => name.includes(hint))) {
+    score += 100;
+  }
+
+  return score;
 }

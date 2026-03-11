@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limiter
@@ -35,8 +35,6 @@ from app.models.schemas import (
     NotificationBulkActionResponse,
     RequestLogRecord,
     ServiceOptionsUpdate,
-    VoiceCatalogResponse,
-    VoiceSynthesisRequest,
     VoiceTranscriptionResponse,
 )
 from app.services.chat_agent_service import ChatAgentService
@@ -47,7 +45,6 @@ from app.services.monday_service import MondayService
 from app.services.openai_service import OpenAIService
 from app.services.store import get_store
 from app.services.voice.deepgram_service import DeepgramService
-from app.services.voice.elevenlabs_service import ElevenLabsService
 
 router = APIRouter()
 settings = get_settings()
@@ -56,7 +53,6 @@ logger = logging.getLogger(__name__)
 openai_service = OpenAIService()
 monday_service = MondayService()
 deepgram_service = DeepgramService()
-elevenlabs_service = ElevenLabsService()
 chat_agent_service = ChatAgentService(
     store=store,
     openai_service=openai_service,
@@ -83,42 +79,14 @@ def chat_message(payload: ChatMessageRequest, request: Request) -> ChatMessageRe
 @router.get("/voice/health", tags=["voice"])
 async def voice_health_check() -> dict[str, Any]:
     """Diagnostic endpoint to verify voice service configuration in production."""
-    deepgram_key = settings.deepgram_api_key
-    elevenlabs_key = settings.elevenlabs_api_key
     return {
         "voice_enabled": settings.voice_enabled,
-        "deepgram_configured": bool(deepgram_key),
-        "deepgram_key_prefix": deepgram_key[:6] + "..." if deepgram_key else None,
+        "deepgram_configured": bool(settings.deepgram_api_key),
         "deepgram_model": settings.deepgram_model,
-        "elevenlabs_configured": bool(elevenlabs_key),
-        "elevenlabs_key_prefix": elevenlabs_key[:6] + "..." if elevenlabs_key else None,
-        "elevenlabs_voice_id": settings.elevenlabs_voice_id,
-        "elevenlabs_model_id": settings.elevenlabs_model_id,
+        "tts_provider": "browser",
         "stt_service_available": deepgram_service.available,
-        "tts_service_available": elevenlabs_service.available,
+        "tts_service_available": settings.voice_enabled,
     }
-
-
-@router.get("/voice/voices", response_model=VoiceCatalogResponse, tags=["voice"])
-async def list_voice_options(request: Request) -> VoiceCatalogResponse:
-    remote = request.client.host if request.client else "unknown"
-    rate_limiter.check(key=f"voice:voices:{remote}", limit=30, window_seconds=60)
-
-    if not settings.voice_enabled:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Voice features are disabled.")
-
-    if not elevenlabs_service.available:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ElevenLabs voice synthesis is not configured.",
-        )
-
-    try:
-        payload = await elevenlabs_service.list_voices()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None
-
-    return VoiceCatalogResponse.model_validate(payload)
 
 
 @router.post("/voice/stt", response_model=VoiceTranscriptionResponse, tags=["voice"])
@@ -169,40 +137,6 @@ async def transcribe_voice_audio(
         )
 
     return VoiceTranscriptionResponse.model_validate(payload)
-
-
-@router.post("/voice/tts", tags=["voice"])
-async def synthesize_voice_audio(
-    payload: VoiceSynthesisRequest,
-    request: Request,
-) -> Response:
-    remote = request.client.host if request.client else "unknown"
-    rate_limiter.check(key=f"voice:tts:{remote}", limit=60, window_seconds=300)
-
-    if not settings.voice_enabled:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Voice features are disabled.")
-
-    if not elevenlabs_service.available:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ElevenLabs voice synthesis is not configured.",
-        )
-
-    try:
-        result = await elevenlabs_service.synthesize_text(
-            text=payload.text,
-            voice_id=payload.voice_id,
-            model_id=payload.model_id,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None
-
-    return Response(
-        content=result["audio_bytes"],
-        media_type=str(result.get("media_type") or "audio/mpeg"),
-        headers={"Cache-Control": "no-store"},
-    )
-
 
 @router.post("/auth/client-code", response_model=ClientCodeResponse, tags=["auth"])
 def authenticate_client(payload: ClientCodeRequest, request: Request) -> ClientCodeResponse:

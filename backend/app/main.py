@@ -16,8 +16,7 @@ settings = get_settings()
 # Log voice configuration status at startup
 logger.info("Voice enabled: %s", settings.voice_enabled)
 logger.info("Deepgram API key configured: %s", bool(settings.deepgram_api_key))
-logger.info("ElevenLabs API key configured: %s", bool(settings.elevenlabs_api_key))
-logger.info("ElevenLabs voice ID: %s", settings.elevenlabs_voice_id)
+logger.info("AI voice output uses browser speech synthesis on the frontend")
 
 app = FastAPI(
     title=settings.app_name,

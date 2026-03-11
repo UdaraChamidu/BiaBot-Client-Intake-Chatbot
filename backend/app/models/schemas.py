@@ -193,29 +193,11 @@ class ChatMessageResponse(BaseModel):
     monday_item_id: str | None = None
 
 
-class VoiceOption(BaseModel):
-    voice_id: str
-    name: str
-    category: str | None = None
-    preview_url: str | None = None
-
-
-class VoiceCatalogResponse(BaseModel):
-    voices: list[VoiceOption] = Field(default_factory=list)
-    default_voice_id: str | None = None
-
-
 class VoiceTranscriptionResponse(BaseModel):
     transcript: str
     confidence: float = 0.0
     duration_seconds: float | None = None
     detected_language: str | None = None
-
-
-class VoiceSynthesisRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=5000)
-    voice_id: str | None = Field(default=None, max_length=120)
-    model_id: str | None = Field(default=None, max_length=120)
 
 
 class IntakePreviewResponse(BaseModel):

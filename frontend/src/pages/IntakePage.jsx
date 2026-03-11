@@ -296,23 +296,18 @@ export default function IntakePage() {
     return null;
   }, [messages]);
   const {
-    availableVoices,
     cancelPendingVoiceTranscription,
     clearVoiceError,
-    isLoadingVoices,
     isRecording,
     isSpeaking,
     isTranscribing,
     isVoiceInputSupported,
     isVoiceOutputEnabled,
     isVoiceOutputSupported,
-    selectedVoice,
-    selectedVoiceId,
     setVoiceOutputEnabled,
     stopRecording,
     stopSpeaking,
     toggleRecording,
-    voiceCatalogError,
     voiceError,
   } = useVoiceAssistant({
     latestBotMessage,
@@ -326,28 +321,18 @@ export default function IntakePage() {
     : isRecording
       ? "Listening. Click the mic again when you are done speaking."
       : isSpeaking && isVoiceOutputEnabled
-        ? `AI voice is playing${selectedVoice?.name ? ` using ${selectedVoice.name}` : ""}. Start recording to interrupt playback.`
+        ? "AI voice is playing. Start recording to interrupt playback."
         : "";
   const voiceStatusKind = voiceError
     ? "error"
     : isRecording
       ? "warning"
       : "status";
-  const canEnableVoiceOutput =
-    isVoiceOutputSupported &&
-    !isLoadingVoices &&
-    Boolean(selectedVoiceId) &&
-    availableVoices.length > 0;
-  const canInteractWithVoiceOutput = isVoiceOutputSupported && !isLoadingVoices;
-  const voiceToolbarNote = voiceCatalogError
-    ? voiceCatalogError
-    : !isVoiceOutputSupported
-      ? "Text chat still works here, but this browser cannot play AI voice replies."
-    : isLoadingVoices
-      ? "Loading AI voices from ElevenLabs..."
-      : availableVoices.length > 0
-        ? "Use the mic to fill the composer. Turn on AI Voice if you want spoken replies."
-        : "No ElevenLabs voices are available for this workspace yet.";
+  const canEnableVoiceOutput = isVoiceOutputSupported;
+  const canInteractWithVoiceOutput = isVoiceOutputSupported;
+  const voiceToolbarNote = !isVoiceOutputSupported
+    ? "Text chat still works here, but this browser cannot play AI voice replies."
+    : "Use the mic to fill the composer. Turn on AI Voice if you want spoken replies.";
   const toastMessages = useMemo(() => {
     const items = [];
     if (welcomeNotice) {
