@@ -128,11 +128,14 @@ class ElevenLabsService:
         }
         if self.settings.elevenlabs_language_code:
             request_body["language_code"] = self.settings.elevenlabs_language_code
-        response = client.text_to_speech.with_raw_response.convert(**request_body)
-        return (
-            self._coerce_audio_bytes(response.data),
-            str(response.headers.get("content-type") or self._resolve_media_type(self.settings.elevenlabs_output_format)),
-        )
+        with client.text_to_speech.with_raw_response.convert(**request_body) as response:
+            return (
+                self._coerce_audio_bytes(response.data),
+                str(
+                    response.headers.get("content-type")
+                    or self._resolve_media_type(self.settings.elevenlabs_output_format)
+                ),
+            )
 
     def _coerce_audio_bytes(self, audio: Any) -> bytes:
         if isinstance(audio, bytes):
