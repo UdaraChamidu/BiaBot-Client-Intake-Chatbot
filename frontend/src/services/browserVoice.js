@@ -134,7 +134,7 @@ export function pickPreferredSpeechSynthesisVoice(voices) {
     .sort((left, right) => right.score - left.score)[0]?.voice || null;
 }
 
-export function waitForSpeechSynthesisVoices(timeoutMs = 1500) {
+export function waitForSpeechSynthesisVoices(timeoutMs = 3000) {
   if (!isVoiceOutputSupported()) {
     return Promise.resolve([]);
   }
@@ -168,6 +168,24 @@ export function waitForSpeechSynthesisVoices(timeoutMs = 1500) {
 
     window.setTimeout(finish, timeoutMs);
   });
+}
+
+export function primeSpeechSynthesis() {
+  if (!isVoiceOutputSupported()) {
+    return;
+  }
+
+  try {
+    const primer = new window.SpeechSynthesisUtterance(" ");
+    primer.volume = 0;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(primer);
+    window.setTimeout(() => {
+      window.speechSynthesis.cancel();
+    }, 0);
+  } catch {
+    // Ignore browser-specific primer failures.
+  }
 }
 
 function scoreSpeechSynthesisVoice(voice) {

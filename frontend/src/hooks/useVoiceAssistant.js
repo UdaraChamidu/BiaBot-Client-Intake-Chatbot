@@ -8,6 +8,7 @@ import {
   normalizeTextForSpeech,
   pickPreferredSpeechSynthesisVoice,
   pickSupportedRecordingMimeType,
+  primeSpeechSynthesis,
   setStoredVoiceOutputEnabled,
   waitForSpeechSynthesisVoices,
 } from "../services/browserVoice";
@@ -426,6 +427,7 @@ export function useVoiceAssistant({
       return;
     }
 
+    primeSpeechSynthesis();
     setStoredVoiceOutputEnabled(true);
     setIsVoiceOutputEnabledState(true);
     lastSpokenMessageIdRef.current = "";
@@ -468,43 +470,56 @@ export function useVoiceAssistant({
           return;
         }
 
-        const utterance = new window.SpeechSynthesisUtterance(normalizedText);
         const preferredVoice = pickPreferredSpeechSynthesisVoice(voices);
-        if (preferredVoice) {
-          utterance.voice = preferredVoice;
-          utterance.lang = preferredVoice.lang || "en-US";
-        } else {
-          utterance.lang = "en-US";
-        }
 
-        utterance.rate = 1;
-        utterance.pitch = 1;
-        utterance.onstart = () => {
-          if (cancelled || speechPlaybackIdRef.current !== playbackId) {
-            return;
+        const startSpeech = (voiceOverride, hasRetried = false) => {
+          const utterance = new window.SpeechSynthesisUtterance(normalizedText);
+          if (voiceOverride) {
+            utterance.voice = voiceOverride;
+            utterance.lang = voiceOverride.lang || "en-US";
+          } else {
+            utterance.lang = "en-US";
           }
-          setIsSpeaking(true);
-        };
-        utterance.onend = () => {
-          if (cancelled || speechPlaybackIdRef.current !== playbackId) {
-            return;
-          }
-          setIsSpeaking(false);
-        };
-        utterance.onerror = (event) => {
-          if (cancelled || speechPlaybackIdRef.current !== playbackId) {
-            return;
-          }
-          const errorCode = String(event?.error ?? "").toLowerCase();
-          setIsSpeaking(false);
-          if (errorCode === "canceled" || errorCode === "interrupted") {
-            return;
-          }
-          setVoiceError("AI voice playback failed. You can continue reading the text reply.");
+
+          utterance.rate = 0.96;
+          utterance.pitch = 1;
+          utterance.onstart = () => {
+            if (cancelled || speechPlaybackIdRef.current !== playbackId) {
+              return;
+            }
+            setIsSpeaking(true);
+          };
+          utterance.onend = () => {
+            if (cancelled || speechPlaybackIdRef.current !== playbackId) {
+              return;
+            }
+            setIsSpeaking(false);
+          };
+          utterance.onerror = (event) => {
+            if (cancelled || speechPlaybackIdRef.current !== playbackId) {
+              return;
+            }
+            const errorCode = String(event?.error ?? "").toLowerCase();
+            setIsSpeaking(false);
+            if (errorCode === "canceled" || errorCode === "interrupted") {
+              return;
+            }
+            if (!hasRetried && voiceOverride) {
+              startSpeech(null, true);
+              return;
+            }
+            setVoiceError(
+              errorCode
+                ? `AI voice playback failed (${errorCode}). You can continue reading the text reply.`
+                : "AI voice playback failed. You can continue reading the text reply."
+            );
+          };
+
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
         };
 
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
+        startSpeech(preferredVoice);
       })
       .catch((error) => {
         if (cancelled) {
