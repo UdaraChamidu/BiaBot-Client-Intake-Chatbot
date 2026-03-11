@@ -42,7 +42,8 @@ export function getStoredVoiceOutputEnabled() {
   if (!hasWindow()) {
     return false;
   }
-  return window.localStorage.getItem(VOICE_OUTPUT_STORAGE_KEY) === "true";
+  window.localStorage.removeItem(VOICE_OUTPUT_STORAGE_KEY);
+  return false;
 }
 
 export function setStoredVoiceOutputEnabled(enabled) {
