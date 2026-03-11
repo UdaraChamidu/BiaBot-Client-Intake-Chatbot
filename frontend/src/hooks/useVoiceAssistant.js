@@ -5,11 +5,11 @@ import {
   isVoiceInputSupported as browserSupportsVoiceInput,
   isVoiceOutputSupported as browserSupportsVoiceOutput,
   mergeComposerText,
-  normalizeTextForSpeech,
   pickPreferredSpeechSynthesisVoice,
   pickSupportedRecordingMimeType,
   primeSpeechSynthesis,
   setStoredVoiceOutputEnabled,
+  splitTextForSpeech,
   waitForSpeechSynthesisVoices,
 } from "../services/browserVoice";
 import { transcribeVoiceRecording } from "../services/voiceService";
@@ -452,8 +452,8 @@ export function useVoiceAssistant({
     speechPlaybackIdRef.current = playbackId;
     cancelSpeechPlayback(false);
 
-    const normalizedText = normalizeTextForSpeech(latestBotMessage.text);
-    if (!normalizedText) {
+    const speechChunks = splitTextForSpeech(latestBotMessage.text);
+    if (speechChunks.length === 0) {
       return;
     }
 
@@ -471,9 +471,16 @@ export function useVoiceAssistant({
         }
 
         const preferredVoice = pickPreferredSpeechSynthesisVoice(voices);
+        const speakChunk = (chunkIndex, voiceOverride, hasRetriedVoice = false) => {
+          if (
+            cancelled ||
+            speechPlaybackIdRef.current !== playbackId ||
+            chunkIndex >= speechChunks.length
+          ) {
+            return;
+          }
 
-        const startSpeech = (voiceOverride, hasRetried = false) => {
-          const utterance = new window.SpeechSynthesisUtterance(normalizedText);
+          const utterance = new window.SpeechSynthesisUtterance(speechChunks[chunkIndex]);
           if (voiceOverride) {
             utterance.voice = voiceOverride;
             utterance.lang = voiceOverride.lang || "en-US";
@@ -481,7 +488,7 @@ export function useVoiceAssistant({
             utterance.lang = "en-US";
           }
 
-          utterance.rate = 0.96;
+          utterance.rate = 0.94;
           utterance.pitch = 1;
           utterance.onstart = () => {
             if (cancelled || speechPlaybackIdRef.current !== playbackId) {
@@ -493,7 +500,13 @@ export function useVoiceAssistant({
             if (cancelled || speechPlaybackIdRef.current !== playbackId) {
               return;
             }
-            setIsSpeaking(false);
+            if (chunkIndex >= speechChunks.length - 1) {
+              setIsSpeaking(false);
+              return;
+            }
+            window.setTimeout(() => {
+              speakChunk(chunkIndex + 1, voiceOverride, hasRetriedVoice);
+            }, 40);
           };
           utterance.onerror = (event) => {
             if (cancelled || speechPlaybackIdRef.current !== playbackId) {
@@ -504,8 +517,10 @@ export function useVoiceAssistant({
             if (errorCode === "canceled" || errorCode === "interrupted") {
               return;
             }
-            if (!hasRetried && voiceOverride) {
-              startSpeech(null, true);
+            if (!hasRetriedVoice && voiceOverride) {
+              window.setTimeout(() => {
+                speakChunk(chunkIndex, null, true);
+              }, 0);
               return;
             }
             setVoiceError(
@@ -515,11 +530,13 @@ export function useVoiceAssistant({
             );
           };
 
-          window.speechSynthesis.cancel();
+          if (chunkIndex === 0) {
+            window.speechSynthesis.cancel();
+          }
           window.speechSynthesis.speak(utterance);
         };
 
-        startSpeech(preferredVoice);
+        speakChunk(0, preferredVoice, false);
       })
       .catch((error) => {
         if (cancelled) {
