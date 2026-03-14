@@ -7,7 +7,7 @@
 Implementation aligned to `BiaBot_Subscription.docx`:
 
 - FastAPI backend
-- Supabase-ready persistence (with in-memory fallback for local)
+- Supabase-ready persistence (with in-memory fallback for local) 
 - OpenAI summary polishing (optional)
 - Monday integration (mock mode by default)
 - React conversational chatbot UI (chat-based auth + one-question flow with branching)
