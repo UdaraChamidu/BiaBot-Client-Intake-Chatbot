@@ -7,6 +7,12 @@ This repository is currently an MVP, but it already covers the full request life
 ## What This Project Is For
 
 Bianomics needs a cleaner way to collect repeat client requests than scattered email threads, chat messages, or incomplete forms. This project turns intake into a guided experience with three goals:
+- FastAPI backend
+- Supabase-ready persistence (with in-memory fallback for local) 
+- OpenAI summary polishing (optional)
+- Monday integration (mock mode by default)
+- React conversational chatbot UI (chat-based auth + one-question flow with branching)
+- Basic admin panel
 
 - make it easy for clients to submit the right details in one place
 - preserve client-specific context such as tone, disclaimers, approvers, and service availability
