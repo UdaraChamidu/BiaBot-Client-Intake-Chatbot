@@ -4,7 +4,7 @@ BiaBot is a client-facing intake workspace for Bianomics. It verifies a client c
 
 This repository is currently an MVP, but it already covers the full request lifecycle from client entry to internal handoff.
 
-## What This Project Is For
+## What This Project Is For 
 
 Bianomics needs a cleaner way to collect repeat client requests than scattered email threads, chat messages, or incomplete forms. This project turns intake into a guided experience with three goals:
 - FastAPI backend
