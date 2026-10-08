@@ -2,6 +2,9 @@
 
 BiaBot is a client-facing intake workspace for Bianomics. It verifies a client code, guides the client through a structured request conversation, builds a review-ready mission summary, allows PDF export, and submits approved requests into Monday while giving admins a separate console for profile management, audit history, and operational visibility.
 
+<img width="1672" height="941" alt="BiaBot AI Workflow Automation Banner" src="https://github.com/user-attachments/assets/84122820-787e-461c-a8a5-3cdeac31638f" />
+
+
 This repository is currently an MVP, but it already covers the full request lifecycle from client entry to internal handoff.
 
 ## What This Project Is For 
